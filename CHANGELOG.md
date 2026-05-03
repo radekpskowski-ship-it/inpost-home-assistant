@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-03
+
+### Added
+- **Multi-phone support** - `device_trackers` option accepts a list of phones from HA Companion. Distance is computed against ALL of them; the smallest distance (any phone, any locker) wins. Useful for couples / families with one InPost account.
+- **Multiple notify services** - `notify_services` accepts a comma-separated list (`notify.mobile_app_pixel_8, notify.mobile_app_iphone`). Each parcel triggers all of them in parallel.
+- **TTS support** - new fields `tts_message`, `tts_service` (default `tts.google_translate_say`), `tts_targets` (multi-select media_players). When threshold is crossed, the message is spoken on every selected media_player. Empty `tts_message` keeps TTS off.
+- **Cooldown in hours** - `notify_cooldown_hours` (1-168) replaces the legacy minute-based field for clearer semantics.
+
+### Changed
+- Old single-value options (`device_tracker`, `notify_service`, `notify_cooldown_min`) remain as fallback for backwards compatibility - existing entries continue to work without re-configuration.
+- Cooldown is set only when at least one notify or TTS target succeeds (lost-notification fix preserved).
+
 ## [0.3.0] - 2026-05-03
 
 ### Added

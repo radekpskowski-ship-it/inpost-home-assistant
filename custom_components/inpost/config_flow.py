@@ -15,14 +15,22 @@ from .api import confirm_sms_code, send_sms_code
 from .const import (
     CONF_AUTH_TOKEN,
     CONF_DEVICE_TRACKER,
-    CONF_NOTIFY_COOLDOWN_MIN,
+    CONF_DEVICE_TRACKERS,
+    CONF_NOTIFY_COOLDOWN_HOURS,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_SERVICES,
     CONF_PHONE,
     CONF_REFRESH_TOKEN,
-    DEFAULT_DEVICE_TRACKER,
-    DEFAULT_NOTIFY_COOLDOWN_MIN,
+    CONF_TTS_MESSAGE,
+    CONF_TTS_SERVICE,
+    CONF_TTS_TARGETS,
+    DEFAULT_DEVICE_TRACKERS,
+    DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_DISTANCE_M,
+    DEFAULT_NOTIFY_SERVICES,
+    DEFAULT_TTS_SERVICE,
+    DEFAULT_TTS_TARGETS,
     DOMAIN,
 )
 
@@ -30,6 +38,26 @@ _LOGGER = logging.getLogger(__name__)
 
 PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
 CODE_SCHEMA = vol.Schema({vol.Required("sms_code"): str})
+
+
+def _resolve_default_trackers(current: dict[str, Any]) -> list[str]:
+    """Backwards compat: jesli stary single device_tracker istnieje, uzyj jako default listy."""
+    val = current.get(CONF_DEVICE_TRACKERS)
+    if val:
+        return list(val)
+    legacy = (current.get(CONF_DEVICE_TRACKER) or "").strip()
+    return [legacy] if legacy else list(DEFAULT_DEVICE_TRACKERS)
+
+
+def _resolve_default_services(current: dict[str, Any]) -> str:
+    """Backwards compat dla pojedynczego notify_service. Zwraca string oddzielony przecinkami."""
+    val = current.get(CONF_NOTIFY_SERVICES)
+    if isinstance(val, list):
+        return ", ".join(s for s in val if s)
+    if isinstance(val, str) and val:
+        return val
+    legacy = (current.get(CONF_NOTIFY_SERVICE) or "").strip()
+    return legacy
 
 
 def _options_schema(current: dict[str, Any]) -> vol.Schema:
@@ -40,12 +68,13 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(
-                CONF_DEVICE_TRACKER,
-                default=current.get(CONF_DEVICE_TRACKER, DEFAULT_DEVICE_TRACKER),
+                CONF_DEVICE_TRACKERS,
+                default=_resolve_default_trackers(current),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="device_tracker",
                     integration="mobile_app",
+                    multiple=True,
                 )
             ),
             vol.Optional(
@@ -58,16 +87,37 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                 )
             ),
             vol.Optional(
-                CONF_NOTIFY_SERVICE,
-                default=current.get(CONF_NOTIFY_SERVICE, ""),
-            ): str,
+                CONF_NOTIFY_SERVICES,
+                default=_resolve_default_services(current),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=False)
+            ),
             vol.Optional(
-                CONF_NOTIFY_COOLDOWN_MIN,
-                default=current.get(CONF_NOTIFY_COOLDOWN_MIN, DEFAULT_NOTIFY_COOLDOWN_MIN),
+                CONF_NOTIFY_COOLDOWN_HOURS,
+                default=current.get(CONF_NOTIFY_COOLDOWN_HOURS, DEFAULT_NOTIFY_COOLDOWN_HOURS),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1, max=1440, step=1,
-                    unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX,
+                    min=1, max=168, step=1,
+                    unit_of_measurement="h", mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_TTS_MESSAGE,
+                default=current.get(CONF_TTS_MESSAGE, ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
+            vol.Optional(
+                CONF_TTS_SERVICE,
+                default=current.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
+            ): str,
+            vol.Optional(
+                CONF_TTS_TARGETS,
+                default=current.get(CONF_TTS_TARGETS, DEFAULT_TTS_TARGETS),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="media_player",
+                    multiple=True,
                 )
             ),
         }
@@ -75,10 +125,10 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
 
 
 def _normalize_options(d: dict[str, Any]) -> dict[str, Any]:
-    """NumberSelector zwraca float; trzymamy intery dla zwartego storage."""
-    if CONF_NOTIFY_COOLDOWN_MIN in d and d[CONF_NOTIFY_COOLDOWN_MIN] is not None:
+    """NumberSelector zwraca float; trzymamy intery dla zwartego storage. Plus parsing list."""
+    if CONF_NOTIFY_COOLDOWN_HOURS in d and d[CONF_NOTIFY_COOLDOWN_HOURS] is not None:
         try:
-            d[CONF_NOTIFY_COOLDOWN_MIN] = int(d[CONF_NOTIFY_COOLDOWN_MIN])
+            d[CONF_NOTIFY_COOLDOWN_HOURS] = int(d[CONF_NOTIFY_COOLDOWN_HOURS])
         except (TypeError, ValueError):
             pass
     if CONF_NOTIFY_DISTANCE_M in d and d[CONF_NOTIFY_DISTANCE_M] is not None:
@@ -86,8 +136,21 @@ def _normalize_options(d: dict[str, Any]) -> dict[str, Any]:
             d[CONF_NOTIFY_DISTANCE_M] = int(d[CONF_NOTIFY_DISTANCE_M])
         except (TypeError, ValueError):
             pass
-    # usun puste stringi (zostawiamy default behavior)
-    for k in (CONF_DEVICE_TRACKER, CONF_NOTIFY_SERVICE):
+    # NOTIFY_SERVICES: TextSelector zwraca str z przecinkami -> rozbij na liste
+    if CONF_NOTIFY_SERVICES in d:
+        v = d[CONF_NOTIFY_SERVICES]
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            d[CONF_NOTIFY_SERVICES] = parts
+        elif v is None:
+            d.pop(CONF_NOTIFY_SERVICES, None)
+    # DEVICE_TRACKERS: EntitySelector(multiple=True) zwraca liste - zostawiamy
+    # TTS_TARGETS: ditto
+    # usun puste stringi i pust listy (default behavior dla pominietych)
+    for k in (CONF_DEVICE_TRACKERS, CONF_NOTIFY_SERVICES, CONF_TTS_TARGETS):
+        if k in d and not d[k]:
+            d.pop(k, None)
+    for k in (CONF_TTS_MESSAGE, CONF_TTS_SERVICE):
         if k in d and (d[k] is None or (isinstance(d[k], str) and not d[k].strip())):
             d.pop(k, None)
     return d

@@ -17,12 +17,15 @@
       },
       "setup_options": {
         "title": "InPost - options",
-        "description": "Pick a phone (from HA Companion app) for distance calculations and configure notifications. All fields are optional - you can skip and configure later via 'Configure'.",
+        "description": "Pick phones (from HA Companion) for distance and notifications. All optional - you can skip and configure later via 'Configure'.",
         "data": {
-          "device_tracker": "Phone (device_tracker from HA Companion app)",
+          "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
-          "notify_service": "Notify service (e.g. notify.mobile_app_<your_phone>)",
-          "notify_cooldown_min": "Per-parcel cooldown (min) - do not notify more often than this"
+          "notify_services": "Notify services - comma separated (e.g. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
+          "tts_message": "TTS text (empty = TTS disabled)",
+          "tts_service": "TTS service (e.g. tts.google_translate_say or tts.cloud_say)",
+          "tts_targets": "Media players for TTS (you can pick several)"
         }
       },
       "reauth_confirm": {
@@ -46,12 +49,15 @@
     "step": {
       "init": {
         "title": "InPost - options",
-        "description": "Phone (from HA Companion app) used for distance calculations and notification settings.",
+        "description": "Phones (from HA Companion) and notification settings (push + TTS).",
         "data": {
-          "device_tracker": "Phone (device_tracker from HA Companion app)",
+          "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
-          "notify_service": "Notify service (e.g. notify.mobile_app_<your_phone>)",
-          "notify_cooldown_min": "Per-parcel cooldown (min) - do not notify more often than this"
+          "notify_services": "Notify services - comma separated (e.g. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
+          "tts_message": "TTS text (empty = TTS disabled)",
+          "tts_service": "TTS service (e.g. tts.google_translate_say or tts.cloud_say)",
+          "tts_targets": "Media players for TTS (you can pick several)"
         }
       }
     }

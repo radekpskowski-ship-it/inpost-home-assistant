@@ -5,14 +5,28 @@ CONF_AUTH_TOKEN = "auth_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 
 # --- options flow ---
+# Stare klucze - zachowane dla backwards compat (czytane jako fallback w setup_options).
 CONF_DEVICE_TRACKER = "device_tracker"
-CONF_NOTIFY_DISTANCE_M = "notify_distance_m"
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_NOTIFY_COOLDOWN_MIN = "notify_cooldown_min"
 
-DEFAULT_DEVICE_TRACKER = ""  # user wybiera w options flow; pusty = nearest_distance/notify wylaczone
+# Nowe klucze (v0.4.0+): wiele telefonow, wiele serwisow notify, cooldown w godzinach, TTS.
+CONF_DEVICE_TRACKERS = "device_trackers"          # lista device_tracker entity_id (mobile_app)
+CONF_NOTIFY_SERVICES = "notify_services"          # lista 'notify.<service>' (string oddzielony przecinkami w UI)
+CONF_NOTIFY_DISTANCE_M = "notify_distance_m"
+CONF_NOTIFY_COOLDOWN_HOURS = "notify_cooldown_hours"
+CONF_TTS_MESSAGE = "tts_message"                  # tekst do wymowienia przez TTS (puste = TTS off)
+CONF_TTS_SERVICE = "tts_service"                  # np. tts.google_translate_say / tts.cloud_say
+CONF_TTS_TARGETS = "tts_targets"                  # lista media_player entity_id
+
+DEFAULT_DEVICE_TRACKER = ""
+DEFAULT_DEVICE_TRACKERS: list[str] = []
+DEFAULT_NOTIFY_SERVICES: list[str] = []
 DEFAULT_NOTIFY_DISTANCE_M = 500
-DEFAULT_NOTIFY_COOLDOWN_MIN = 60
+DEFAULT_NOTIFY_COOLDOWN_HOURS = 1
+DEFAULT_NOTIFY_COOLDOWN_MIN = 60                  # tylko fallback dla starych wpisow
+DEFAULT_TTS_SERVICE = "tts.google_translate_say"
+DEFAULT_TTS_TARGETS: list[str] = []
 
 # autoremove: ile kolejnych pustych odczytow zanim usuniemy encje paczki (chroni przed znikaniem przy chwilowym blip API)
 AUTOREMOVE_GRACE_TICKS = 2

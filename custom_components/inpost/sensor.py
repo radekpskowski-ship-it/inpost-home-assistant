@@ -19,8 +19,8 @@ from . import haversine_m
 from .const import (
     AUTOREMOVE_GRACE_TICKS,
     CONF_DEVICE_TRACKER,
+    CONF_DEVICE_TRACKERS,
     CONF_PHONE,
-    DEFAULT_DEVICE_TRACKER,
     DOMAIN,
 )
 from .coordinator import InpostCoordinator
@@ -157,19 +157,23 @@ class InpostNearestSensor(InpostBase):
     def __init__(self, coord, entry):
         super().__init__(coord, entry)
         self._attr_unique_id = f"{entry.entry_id}_nearest_distance"
-        self._unsub_tracker = None
 
     @property
-    def _device_tracker_entity(self) -> str:
-        return (self._entry.options.get(CONF_DEVICE_TRACKER) or DEFAULT_DEVICE_TRACKER).strip()
+    def _trackers(self) -> list[str]:
+        opts = self._entry.options
+        v = opts.get(CONF_DEVICE_TRACKERS)
+        if isinstance(v, list) and v:
+            return [t for t in v if t]
+        legacy = (opts.get(CONF_DEVICE_TRACKER) or "").strip()
+        return [legacy] if legacy else []
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        tracker = self._device_tracker_entity
-        if tracker:
+        trackers = self._trackers
+        if trackers:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [tracker], self._tracker_changed
+                    self.hass, trackers, self._tracker_changed
                 )
             )
         self.async_write_ha_state()
@@ -178,30 +182,30 @@ class InpostNearestSensor(InpostBase):
     def _tracker_changed(self, _event) -> None:
         self.async_write_ha_state()
 
-    def _user_pos(self):
-        tracker = self._device_tracker_entity
-        if not tracker:
-            return None
-        st = self.hass.states.get(tracker)
-        if not st:
-            return None
-        la = st.attributes.get("latitude")
-        lo = st.attributes.get("longitude")
-        if la is None or lo is None:
-            return None
-        try:
-            return float(la), float(lo)
-        except (TypeError, ValueError):
-            return None
+    def _user_positions(self) -> list[tuple[float, float]]:
+        out: list[tuple[float, float]] = []
+        for t in self._trackers:
+            st = self.hass.states.get(t)
+            if not st:
+                continue
+            la = st.attributes.get("latitude")
+            lo = st.attributes.get("longitude")
+            if la is None or lo is None:
+                continue
+            try:
+                out.append((float(la), float(lo)))
+            except (TypeError, ValueError):
+                continue
+        return out
 
     @property
     def available(self) -> bool:
-        return bool(self._device_tracker_entity) and super().available
+        return bool(self._trackers) and super().available
 
     @property
     def native_value(self):
-        pos = self._user_pos()
-        if not pos:
+        positions = self._user_positions()
+        if not positions:
             return None
         best = None
         for p in self.coordinator.pickup_parcels:
@@ -212,17 +216,19 @@ class InpostNearestSensor(InpostBase):
             if la is None or lo is None:
                 continue
             try:
-                d = haversine_m(pos[0], pos[1], float(la), float(lo))
+                lap, lop = float(la), float(lo)
             except (TypeError, ValueError):
                 continue
-            if best is None or d < best[0]:
-                best = (d, p)
+            for ula, ulo in positions:
+                d = haversine_m(ula, ulo, lap, lop)
+                if best is None or d < best[0]:
+                    best = (d, p)
         return round(best[0]) if best else None
 
     @property
     def extra_state_attributes(self):
-        pos = self._user_pos()
-        if not pos:
+        positions = self._user_positions()
+        if not positions:
             return {}
         nearest_name = None
         nearest_sn = None
@@ -235,16 +241,19 @@ class InpostNearestSensor(InpostBase):
             if la is None or lo is None:
                 continue
             try:
-                d = haversine_m(pos[0], pos[1], float(la), float(lo))
+                lap, lop = float(la), float(lo)
             except (TypeError, ValueError):
                 continue
-            if nearest_d is None or d < nearest_d:
-                nearest_d = d
-                nearest_name = pp.get("name")
-                nearest_sn = p.get("shipmentNumber")
+            for ula, ulo in positions:
+                d = haversine_m(ula, ulo, lap, lop)
+                if nearest_d is None or d < nearest_d:
+                    nearest_d = d
+                    nearest_name = pp.get("name")
+                    nearest_sn = p.get("shipmentNumber")
         return {
             "nearest_pickup_point": nearest_name,
             "nearest_shipment_number": nearest_sn,
+            "trackers_used": len(positions),
         }
 
 

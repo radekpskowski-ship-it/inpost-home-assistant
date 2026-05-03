@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from math import asin, cos, radians, sin, sqrt
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -13,10 +14,16 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_DEVICE_TRACKER,
+    CONF_DEVICE_TRACKERS,
+    CONF_NOTIFY_COOLDOWN_HOURS,
     CONF_NOTIFY_COOLDOWN_MIN,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
-    DEFAULT_DEVICE_TRACKER,
+    CONF_NOTIFY_SERVICES,
+    CONF_TTS_MESSAGE,
+    CONF_TTS_SERVICE,
+    CONF_TTS_TARGETS,
+    DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_COOLDOWN_MIN,
     DEFAULT_NOTIFY_DISTANCE_M,
     DOMAIN,
@@ -39,18 +46,53 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * R * asin(sqrt(a))
 
 
+def _resolve_trackers(opts: dict[str, Any]) -> list[str]:
+    """Listy z opcji + fallback na stary single device_tracker."""
+    trackers = opts.get(CONF_DEVICE_TRACKERS)
+    if isinstance(trackers, list) and trackers:
+        return [t for t in trackers if t]
+    legacy = (opts.get(CONF_DEVICE_TRACKER) or "").strip()
+    return [legacy] if legacy else []
+
+
+def _resolve_notify_services(opts: dict[str, Any]) -> list[str]:
+    """Lista 'notify.X' - z nowego CONF_NOTIFY_SERVICES (lista) lub starego CONF_NOTIFY_SERVICE (string)."""
+    services = opts.get(CONF_NOTIFY_SERVICES)
+    if isinstance(services, list) and services:
+        return [s.strip() for s in services if s and "." in s]
+    if isinstance(services, str) and services.strip():
+        return [s.strip() for s in services.split(",") if s.strip() and "." in s]
+    legacy = (opts.get(CONF_NOTIFY_SERVICE) or "").strip()
+    return [legacy] if legacy and "." in legacy else []
+
+
+def _resolve_cooldown(opts: dict[str, Any]) -> timedelta:
+    """Cooldown - preferuj nowe godziny, fallback na stare minuty."""
+    if CONF_NOTIFY_COOLDOWN_HOURS in opts:
+        try:
+            return timedelta(hours=int(opts[CONF_NOTIFY_COOLDOWN_HOURS] or DEFAULT_NOTIFY_COOLDOWN_HOURS))
+        except (TypeError, ValueError):
+            pass
+    if CONF_NOTIFY_COOLDOWN_MIN in opts:
+        try:
+            return timedelta(minutes=int(opts[CONF_NOTIFY_COOLDOWN_MIN] or DEFAULT_NOTIFY_COOLDOWN_MIN))
+        except (TypeError, ValueError):
+            pass
+    return timedelta(hours=DEFAULT_NOTIFY_COOLDOWN_HOURS)
+
+
 class InpostNotifier:
-    """Wystrzela notify.<service> gdy paczka znajdzie sie blizej progu (per shipmentNumber, z cooldownem).
+    """Wystrzela powiadomienia gdy paczka znajdzie sie blizej progu (per shipmentNumber, z cooldownem).
 
     Cooldowny persistowane przez Store - przezywaja restart HA.
+    Wspiera wiele targetow notify oraz opcjonalny TTS na wybranym media_player.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, coord: InpostCoordinator) -> None:
         self.hass = hass
         self.entry = entry
         self.coord = coord
-        # ISO-format timestamps (utc) per shipmentNumber, persistowane
-        self._last_notified: dict[str, str] = {}
+        self._last_notified: dict[str, str] = {}  # ISO utc per shipmentNumber
         self._store: Store = Store(
             hass, STORAGE_VERSION, f"{STORAGE_KEY_NOTIFY}.{entry.entry_id}"
         )
@@ -76,37 +118,46 @@ class InpostNotifier:
             threshold = float(opts.get(CONF_NOTIFY_DISTANCE_M, DEFAULT_NOTIFY_DISTANCE_M) or 0)
         except (TypeError, ValueError):
             return
-        service_full = (opts.get(CONF_NOTIFY_SERVICE) or "").strip()
-        try:
-            cooldown_min = int(opts.get(CONF_NOTIFY_COOLDOWN_MIN, DEFAULT_NOTIFY_COOLDOWN_MIN) or 0)
-        except (TypeError, ValueError):
-            cooldown_min = DEFAULT_NOTIFY_COOLDOWN_MIN
-
-        if threshold <= 0 or not service_full or "." not in service_full:
-            return
-        domain, service = service_full.split(".", 1)
-
-        if not self.hass.services.has_service(domain, service):
-            _LOGGER.warning(
-                "InPost: serwis %s.%s nie jest zarejestrowany - powiadomienia pominiete",
-                domain, service,
-            )
+        if threshold <= 0:
             return
 
-        tracker_id = (opts.get(CONF_DEVICE_TRACKER) or DEFAULT_DEVICE_TRACKER).strip()
-        if not tracker_id:
-            return
-        st = self.hass.states.get(tracker_id)
-        if not st:
-            return
-        try:
-            user_lat = float(st.attributes.get("latitude"))
-            user_lon = float(st.attributes.get("longitude"))
-        except (TypeError, ValueError):
+        notify_services = _resolve_notify_services(opts)
+        tts_message = (opts.get(CONF_TTS_MESSAGE) or "").strip()
+        tts_service = (opts.get(CONF_TTS_SERVICE) or "").strip()
+        tts_targets = opts.get(CONF_TTS_TARGETS) or []
+        tts_enabled = (
+            bool(tts_message)
+            and "." in tts_service
+            and isinstance(tts_targets, list)
+            and bool(tts_targets)
+        )
+
+        if not notify_services and not tts_enabled:
+            return  # nic do strzelania
+
+        trackers = _resolve_trackers(opts)
+        if not trackers:
             return
 
+        # zbierz pozycje wszystkich aktywnych telefonow
+        positions: list[tuple[float, float]] = []
+        for t in trackers:
+            st = self.hass.states.get(t)
+            if not st:
+                continue
+            la = st.attributes.get("latitude")
+            lo = st.attributes.get("longitude")
+            if la is None or lo is None:
+                continue
+            try:
+                positions.append((float(la), float(lo)))
+            except (TypeError, ValueError):
+                continue
+        if not positions:
+            return
+
+        cooldown = _resolve_cooldown(opts)
         now = dt_util.utcnow()
-        cooldown = timedelta(minutes=cooldown_min)
         active_sns: set[str] = set()
         dirty = False
 
@@ -124,8 +175,10 @@ class InpostNotifier:
                 lo = float(loc.get("longitude"))
             except (TypeError, ValueError):
                 continue
-            d = haversine_m(user_lat, user_lon, la, lo)
-            if d > threshold:
+
+            # min dystans miedzy ktoryms telefonem a paczkomatem
+            min_d = min(haversine_m(ula, ulo, la, lo) for (ula, ulo) in positions)
+            if min_d > threshold:
                 continue
 
             last_iso = self._last_notified.get(sn)
@@ -140,17 +193,17 @@ class InpostNotifier:
                 addr.get("buildingNumber"),
                 f'({addr.get("postCode", "")} {addr.get("city", "")})'.strip(),
             ] if x).strip()
-            message = f"Paczka {sn} w {pp.get('name', '')} ({address_str}), {round(d)} m"
+            message = f"Paczka {sn} w {pp.get('name', '')} ({address_str}), {round(min_d)} m"
             if p.get("openCode"):
                 message += f", kod {p.get('openCode')}"
 
-            _LOGGER.debug("InPost: notify candidate sn=%s d=%dm", sn, round(d))
+            _LOGGER.debug("InPost: notify candidate sn=%s d=%dm", sn, round(min_d))
             self.hass.async_create_task(
-                self._fire_notify(domain, service, message, sn),
+                self._fire_all(notify_services, tts_message, tts_service, tts_targets, message, sn),
                 name=f"inpost_notify_{sn}",
             )
 
-        # GC: usun cooldowny dla paczek ktore znikly z aktywnych (odebrane/zwrocone)
+        # GC: usun cooldowny dla paczek ktore znikly (odebrane/zwrocone)
         gone = set(self._last_notified.keys()) - active_sns
         if gone:
             for sn in gone:
@@ -160,20 +213,57 @@ class InpostNotifier:
         if dirty:
             self.hass.async_create_task(self._async_save(), name="inpost_notify_save")
 
-    async def _fire_notify(self, domain: str, service: str, message: str, sn: str) -> None:
-        try:
-            await self.hass.services.async_call(
-                domain, service,
-                {"title": "InPost - paczkomat blisko", "message": message},
-                blocking=True,
-            )
-        except Exception:  # noqa: BLE001
-            _LOGGER.exception(
-                "InPost: notify %s.%s zawiodl - cooldown NIE ustawiony", domain, service,
-            )
-            return
-        self._last_notified[sn] = dt_util.utcnow().isoformat()
-        await self._async_save()
+    async def _fire_all(
+        self,
+        notify_services: list[str],
+        tts_message: str,
+        tts_service: str,
+        tts_targets: list[str],
+        message: str,
+        sn: str,
+    ) -> None:
+        any_success = False
+
+        # 1) klasyczne notify (push)
+        for svc in notify_services:
+            if "." not in svc:
+                continue
+            domain, service = svc.split(".", 1)
+            if not self.hass.services.has_service(domain, service):
+                _LOGGER.warning("InPost: serwis %s nie jest zarejestrowany - pomijam", svc)
+                continue
+            try:
+                await self.hass.services.async_call(
+                    domain, service,
+                    {"title": "InPost - paczkomat blisko", "message": message},
+                    blocking=True,
+                )
+                any_success = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("InPost: notify %s zawiodl", svc)
+
+        # 2) TTS na wybranych media_player
+        if tts_message and tts_service and tts_targets and "." in tts_service:
+            td, ts = tts_service.split(".", 1)
+            if self.hass.services.has_service(td, ts):
+                for media in tts_targets:
+                    try:
+                        await self.hass.services.async_call(
+                            td, ts,
+                            {"entity_id": media, "message": tts_message},
+                            blocking=True,
+                        )
+                        any_success = True
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.exception("InPost: TTS %s -> %s zawiodl", tts_service, media)
+            else:
+                _LOGGER.warning("InPost: serwis TTS %s nie jest zarejestrowany", tts_service)
+
+        if any_success:
+            self._last_notified[sn] = dt_util.utcnow().isoformat()
+            await self._async_save()
+        else:
+            _LOGGER.warning("InPost: zaden cel notify/TTS nie zadzialal - cooldown NIE ustawiony dla %s", sn)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

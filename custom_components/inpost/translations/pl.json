@@ -17,12 +17,15 @@
       },
       "setup_options": {
         "title": "InPost - opcje",
-        "description": "Wybierz telefon (z aplikacji HA Companion) do liczenia dystansu i ustaw powiadomienia. Wszystko opcjonalne - mozesz pominac i skonfigurowac pozniej w 'Configure'.",
+        "description": "Wybierz telefony (z aplikacji HA Companion) do liczenia dystansu i powiadomien. Wszystko opcjonalne - mozesz pominac i ustawic pozniej w 'Configure'.",
         "data": {
-          "device_tracker": "Telefon (device_tracker z aplikacji HA Companion)",
+          "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
-          "notify_service": "Serwis notify (np. notify.mobile_app_<twoj_telefon>)",
-          "notify_cooldown_min": "Cooldown na paczke (min) - nie powiadamiaj czesciej"
+          "notify_services": "Serwisy notify - oddzielone przecinkami (np. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
+          "tts_message": "Tekst TTS (puste = TTS wylaczone)",
+          "tts_service": "Serwis TTS (np. tts.google_translate_say lub tts.cloud_say)",
+          "tts_targets": "Media playery dla TTS (mozna wybrac kilka)"
         }
       },
       "reauth_confirm": {
@@ -46,12 +49,15 @@
     "step": {
       "init": {
         "title": "InPost - opcje",
-        "description": "Telefon z aplikacja Home Assistant Companion uzywany do liczenia dystansu oraz konfiguracja powiadomien.",
+        "description": "Telefony z aplikacji HA Companion oraz konfiguracja powiadomien (push + TTS).",
         "data": {
-          "device_tracker": "Telefon (device_tracker z aplikacji HA Companion)",
+          "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
-          "notify_service": "Serwis notify (np. notify.mobile_app_<twoj_telefon>)",
-          "notify_cooldown_min": "Cooldown na paczke (min) - nie powiadamiaj czesciej"
+          "notify_services": "Serwisy notify - oddzielone przecinkami (np. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
+          "tts_message": "Tekst TTS (puste = TTS wylaczone)",
+          "tts_service": "Serwis TTS (np. tts.google_translate_say lub tts.cloud_say)",
+          "tts_targets": "Media playery dla TTS (mozna wybrac kilka)"
         }
       }
     }
