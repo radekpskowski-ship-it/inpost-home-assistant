@@ -1,0 +1,40 @@
+name: Bug report
+description: Coś nie działa? / Something does not work?
+labels: [bug]
+body:
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2025.x.y"
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: Co się stało / What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Włącz debug i wklej fragment z `home-assistant.log`. UWAGA - usuń tokeny / numer telefonu.
+      placeholder: |
+        # configuration.yaml
+        logger:
+          default: warning
+          logs:
+            custom_components.inpost: debug
+      render: text
+  - type: textarea
+    id: steps
+    attributes:
+      label: Kroki repro / Steps to reproduce

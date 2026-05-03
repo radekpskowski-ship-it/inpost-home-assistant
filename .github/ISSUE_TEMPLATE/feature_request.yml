@@ -1,0 +1,14 @@
+name: Feature request
+description: Pomysł na nową funkcję
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Co chciałbyś dodać?
+    validations:
+      required: true
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Przykładowy use case

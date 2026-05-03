@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "InPost - logowanie",
+        "description": "Wpisz numer telefonu z konta InPost (9 cyfr, bez +48). Wyslemy SMS z kodem.",
+        "data": {
+          "phone_number": "Numer telefonu"
+        }
+      },
+      "sms": {
+        "title": "InPost - kod SMS",
+        "description": "Wpisz 6-cyfrowy kod SMS wyslany na numer +48 {phone}.",
+        "data": {
+          "sms_code": "Kod SMS"
+        }
+      },
+      "reauth_confirm": {
+        "title": "InPost - ponowne logowanie",
+        "description": "Sesja wygasla. Wyslalismy nowy SMS - wpisz kod.",
+        "data": {
+          "sms_code": "Kod SMS"
+        }
+      }
+    },
+    "error": {
+      "cannot_send_sms": "Nie udalo sie wyslac SMS - sprawdz numer telefonu.",
+      "wrong_code": "Niepoprawny kod SMS lub kod wygasl. Sprobuj ponownie."
+    },
+    "abort": {
+      "already_configured": "Konto z tym numerem telefonu jest juz dodane.",
+      "reauth_successful": "Sesja odswiezona pomyslnie."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "InPost - opcje",
+        "description": "Telefon z aplikacja Home Assistant uzywany do liczenia dystansu oraz konfiguracja powiadomien.",
+        "data": {
+          "device_tracker": "Telefon (device_tracker z aplikacji HA)",
+          "notify_distance_m": "Prog powiadomien (m, 0 = wylacz)",
+          "notify_service": "Serwis notify (np. notify.mobile_app_<twoj_telefon>)",
+          "notify_cooldown_min": "Cooldown na paczke (min)"
+        }
+      }
+    }
+  }
+}

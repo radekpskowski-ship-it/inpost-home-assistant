@@ -1,0 +1,14 @@
+{
+  "domain": "inpost",
+  "name": "InPost (paczki)",
+  "version": "0.2.0",
+  "documentation": "https://github.com/radekpskowski-ship-it/inpost-home-assistant",
+  "issue_tracker": "https://github.com/radekpskowski-ship-it/inpost-home-assistant/issues",
+  "codeowners": ["@radekpskowski-ship-it"],
+  "requirements": [],
+  "dependencies": [],
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "quality_scale": "silver"
+}

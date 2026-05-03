@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "InPost - sign in",
+        "description": "Enter the phone number from your InPost account (9 digits, no country code). We will send an SMS code.",
+        "data": {
+          "phone_number": "Phone number"
+        }
+      },
+      "sms": {
+        "title": "InPost - SMS code",
+        "description": "Enter the 6-digit SMS code sent to +48 {phone}.",
+        "data": {
+          "sms_code": "SMS code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "InPost - re-authentication",
+        "description": "The session expired. We sent a new SMS - enter the code.",
+        "data": {
+          "sms_code": "SMS code"
+        }
+      }
+    },
+    "error": {
+      "cannot_send_sms": "Could not send the SMS - check the phone number.",
+      "wrong_code": "Invalid or expired SMS code. Try again."
+    },
+    "abort": {
+      "already_configured": "An account with this phone number is already configured.",
+      "reauth_successful": "Session refreshed successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "InPost - options",
+        "description": "Phone with the Home Assistant app used to compute distance, and notification settings.",
+        "data": {
+          "device_tracker": "Phone (device_tracker from HA app)",
+          "notify_distance_m": "Notification threshold (m, 0 = disabled)",
+          "notify_service": "Notify service (e.g. notify.mobile_app_<your_phone>)",
+          "notify_cooldown_min": "Per-parcel cooldown (min)"
+        }
+      }
+    }
+  }
+}
