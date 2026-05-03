@@ -15,6 +15,16 @@
           "sms_code": "Kod SMS"
         }
       },
+      "setup_options": {
+        "title": "InPost - opcje",
+        "description": "Wybierz telefon (z aplikacji HA Companion) do liczenia dystansu i ustaw powiadomienia. Wszystko opcjonalne - mozesz pominac i skonfigurowac pozniej w 'Configure'.",
+        "data": {
+          "device_tracker": "Telefon (device_tracker z aplikacji HA Companion)",
+          "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
+          "notify_service": "Serwis notify (np. notify.mobile_app_<twoj_telefon>)",
+          "notify_cooldown_min": "Cooldown na paczke (min) - nie powiadamiaj czesciej"
+        }
+      },
       "reauth_confirm": {
         "title": "InPost - ponowne logowanie",
         "description": "Sesja wygasla. Wyslalismy nowy SMS - wpisz kod.",
@@ -36,12 +46,12 @@
     "step": {
       "init": {
         "title": "InPost - opcje",
-        "description": "Telefon z aplikacja Home Assistant uzywany do liczenia dystansu oraz konfiguracja powiadomien.",
+        "description": "Telefon z aplikacja Home Assistant Companion uzywany do liczenia dystansu oraz konfiguracja powiadomien.",
         "data": {
-          "device_tracker": "Telefon (device_tracker z aplikacji HA)",
-          "notify_distance_m": "Prog powiadomien (m, 0 = wylacz)",
+          "device_tracker": "Telefon (device_tracker z aplikacji HA Companion)",
+          "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
           "notify_service": "Serwis notify (np. notify.mobile_app_<twoj_telefon>)",
-          "notify_cooldown_min": "Cooldown na paczke (min)"
+          "notify_cooldown_min": "Cooldown na paczke (min) - nie powiadamiaj czesciej"
         }
       }
     }

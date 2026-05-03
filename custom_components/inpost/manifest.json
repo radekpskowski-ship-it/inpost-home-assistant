@@ -1,7 +1,7 @@
 {
   "domain": "inpost",
   "name": "InPost (paczki)",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "documentation": "https://github.com/radekpskowski-ship-it/inpost-home-assistant",
   "issue_tracker": "https://github.com/radekpskowski-ship-it/inpost-home-assistant/issues",
   "codeowners": ["@radekpskowski-ship-it"],

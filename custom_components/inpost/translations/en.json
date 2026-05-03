@@ -15,6 +15,16 @@
           "sms_code": "SMS code"
         }
       },
+      "setup_options": {
+        "title": "InPost - options",
+        "description": "Pick a phone (from HA Companion app) for distance calculations and configure notifications. All fields are optional - you can skip and configure later via 'Configure'.",
+        "data": {
+          "device_tracker": "Phone (device_tracker from HA Companion app)",
+          "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
+          "notify_service": "Notify service (e.g. notify.mobile_app_<your_phone>)",
+          "notify_cooldown_min": "Per-parcel cooldown (min) - do not notify more often than this"
+        }
+      },
       "reauth_confirm": {
         "title": "InPost - re-authentication",
         "description": "The session expired. We sent a new SMS - enter the code.",
@@ -36,12 +46,12 @@
     "step": {
       "init": {
         "title": "InPost - options",
-        "description": "Phone with the Home Assistant app used to compute distance, and notification settings.",
+        "description": "Phone (from HA Companion app) used for distance calculations and notification settings.",
         "data": {
-          "device_tracker": "Phone (device_tracker from HA app)",
-          "notify_distance_m": "Notification threshold (m, 0 = disabled)",
+          "device_tracker": "Phone (device_tracker from HA Companion app)",
+          "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
           "notify_service": "Notify service (e.g. notify.mobile_app_<your_phone>)",
-          "notify_cooldown_min": "Per-parcel cooldown (min)"
+          "notify_cooldown_min": "Per-parcel cooldown (min) - do not notify more often than this"
         }
       }
     }

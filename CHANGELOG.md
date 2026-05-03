@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-03
+
+### Added
+- Initial setup form now includes the options step (`setup_options`): pick the device_tracker phone, distance threshold, notify service, and per-parcel cooldown right when adding the integration. All optional - can be skipped and configured later via `Configure`.
+
+### Changed
+- Clearer field labels: "Powiadom gdy paczka blizej niz (m)" instead of generic "Próg powiadomień".
+- Both `pl` and `en` translations updated for the new step.
+
 ## [0.2.0] - 2026-05-03
 
 ### Added
