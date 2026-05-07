@@ -40,11 +40,11 @@ PICKUP_STATUSES = {
 
 # Statusy "terminalne" - paczka skonczona. Uzytkownik nie chce ich w UI HA, wiec encje
 # sa pomijane przy tworzeniu i usuwane gdy istniejaca paczka tu trafi (przez normalny grace period).
+# UWAGA: RETURNED_TO_SENDER / RETURNED_TO_SOURCE_BRANCH zostaja widoczne - sa wciaz interesujace
+# (zwrot do nadawcy / w drodze powrotnej do oddzialu).
 TERMINAL_STATUSES = {
     "DELIVERED",
     "PICKED_UP",
-    "RETURNED_TO_SENDER",
-    "RETURNED_TO_SOURCE_BRANCH",
     "CANCELED",
     "PICKUP_TIME_EXPIRED",
 }

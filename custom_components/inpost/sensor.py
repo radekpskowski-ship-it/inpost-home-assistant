@@ -336,8 +336,6 @@ class InpostParcelSensor(InpostBase):
             "status_raw": d.get("status"),
             "sender": (d.get("sender") or {}).get("name"),
             "references": refs,
-            "parcel_size": d.get("parcelSize"),
-            "weight": d.get("weight"),
             "estimated_delivery_date": d.get("estimatedDeliveryDate"),
             "pickup_point": pp.get("name"),
             "address": " ".join(x for x in [

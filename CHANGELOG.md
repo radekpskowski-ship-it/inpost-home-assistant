@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-07
+
+### Changed
+- `RETURNED_TO_SENDER` and `RETURNED_TO_SOURCE_BRANCH` no longer treated as terminal — entities for returned parcels stay visible (return state is still interesting). Terminal set is now only `DELIVERED`, `PICKED_UP`, `CANCELED`, `PICKUP_TIME_EXPIRED`.
+
+### Removed
+- Attributes `parcel_size` and `weight` removed from parcel entity (rarely useful, added in 0.6.0).
+
 ## [0.6.0] - 2026-05-07
 
 ### Added
