@@ -38,16 +38,21 @@ PICKUP_STATUSES = {
     "PICKUP_REMINDER_SENT",
 }
 
-# Statusy "terminalne" - paczka skonczona. Uzytkownik nie chce ich w UI HA, wiec encje
-# sa pomijane przy tworzeniu i usuwane gdy istniejaca paczka tu trafi (przez normalny grace period).
-# UWAGA: RETURNED_TO_SENDER / RETURNED_TO_SOURCE_BRANCH zostaja widoczne - sa wciaz interesujace
-# (zwrot do nadawcy / w drodze powrotnej do oddzialu).
+# Statusy "terminalne" - paczka skonczona, encja od razu pomijana (bez 12h okna).
+# UWAGA: RETURNED_TO_SENDER / RETURNED_TO_SOURCE_BRANCH zostaja widoczne - sa wciaz interesujace.
 TERMINAL_STATUSES = {
-    "DELIVERED",
-    "PICKED_UP",
     "CANCELED",
     "PICKUP_TIME_EXPIRED",
 }
+
+# Statusy "odebrana z paczkomatu" - encja widoczna jeszcze przez
+# POST_PICKUP_VISIBILITY_HOURS godzin po odbiorze (z napisem "Odebrana"),
+# potem znika przez normalny grace period.
+RECENT_PICKUP_STATUSES = {
+    "DELIVERED",
+    "PICKED_UP",
+}
+POST_PICKUP_VISIBILITY_HOURS = 12
 
 # Pelny slownik statusow API mobilnego InPost -> czytelna etykieta PL.
 # Encja paczki dziedziczy state z tej mapy (fallback: surowy status).
@@ -72,7 +77,7 @@ STATUS_LABELS_PL: dict[str, str] = {
     "PICKUP_REMINDER_SENT": "Przypomnienie o odbiorze",
     "PICKUP_TIME_EXPIRED": "Czas odbioru minal",
     "AVIZO": "Awizo",
-    "DELIVERED": "Doreczona",
+    "DELIVERED": "Odebrana",
     "PICKED_UP": "Odebrana",
     "RETURNED_TO_SENDER": "Zwrocona do nadawcy",
     "RETURNED_TO_SOURCE_BRANCH": "Zwrocona do oddzialu",

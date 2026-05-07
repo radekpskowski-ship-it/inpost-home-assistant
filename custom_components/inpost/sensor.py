@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -29,6 +30,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from . import haversine_m
 from .const import (
@@ -38,6 +40,8 @@ from .const import (
     CONF_PHONE,
     DEFAULT_PARCEL_ICON,
     DOMAIN,
+    POST_PICKUP_VISIBILITY_HOURS,
+    RECENT_PICKUP_STATUSES,
     STATUS_ICONS,
     STATUS_LABELS_PL,
     TERMINAL_STATUSES,
@@ -53,6 +57,22 @@ _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
 def _slug_for_entity_id(s: str) -> str:
     return _NON_ALNUM_RE.sub("_", str(s)).strip("_").lower()
+
+
+def _is_recent_pickup_visible(parcel: dict) -> bool:
+    """True jesli paczka odebrana w oknie ostatnich POST_PICKUP_VISIBILITY_HOURS godzin.
+
+    Uzywamy `pickUpDate` z API - zwraca ISO timestamp momentu odbioru. Po przekroczeniu
+    okna encja przestaje byc w `active`, dalej grace period -> usuniecie z registry.
+    """
+    pickup_iso = parcel.get("pickUpDate")
+    if not pickup_iso:
+        # brak daty odbioru - nie wiemy kiedy, traktujemy jako "po oknie" (hide)
+        return False
+    pickup_dt = dt_util.parse_datetime(pickup_iso)
+    if not pickup_dt:
+        return False
+    return (dt_util.utcnow() - pickup_dt) < timedelta(hours=POST_PICKUP_VISIBILITY_HOURS)
 
 
 def _format_pp_address(addr_details: dict, *, with_postcode: bool = False) -> str:
@@ -110,12 +130,16 @@ async def async_setup_entry(
 
         # ============ PER-PACZKA ============
         # Aktywne paczki = wszystkie w API poza terminalami i ignorowanymi nadawcami.
+        # Status RECENT_PICKUP (DELIVERED/PICKED_UP) zostaje aktywny przez 12h od odbioru.
         active_parcels: set[str] = set()
         for p in coord.all_parcels:
-            if p.get("status") in TERMINAL_STATUSES:
-                continue
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
+            status = p.get("status")
+            if status in TERMINAL_STATUSES:
+                continue  # CANCELED / PICKUP_TIME_EXPIRED - od razu hide
+            if status in RECENT_PICKUP_STATUSES and not _is_recent_pickup_visible(p):
+                continue  # po 12h od odbioru - hide
             sn = p.get("shipmentNumber") or p.get("id")
             if sn:
                 active_parcels.add(str(sn))
@@ -352,9 +376,13 @@ class InpostParcelSensor(InpostBase):
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
-                if p.get("status") in TERMINAL_STATUSES:
-                    return None
                 if is_sender_ignored((p.get("sender") or {}).get("name")):
+                    return None
+                status = p.get("status")
+                if status in TERMINAL_STATUSES:
+                    return None
+                # RECENT_PICKUP: paczka odebrana - widoczna jeszcze przez 12h
+                if status in RECENT_PICKUP_STATUSES and not _is_recent_pickup_visible(p):
                     return None
                 return p
         return None

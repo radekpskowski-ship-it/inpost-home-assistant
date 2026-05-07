@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-07
+
+### Added
+- **12 h post-pickup visibility window.** When a parcel transitions to `DELIVERED` / `PICKED_UP`, the entity stays visible for 12 hours showing state `Odebrana` (icon `mdi:package-check`) before being removed via the normal grace period. Window driven by the API's `pickUpDate` field (no extra storage). Useful so you can still see what was just picked up on the dashboard for the rest of the day.
+- New constant `POST_PICKUP_VISIBILITY_HOURS = 12` in `const.py` — change to extend / shorten the window.
+
+### Changed
+- `STATUS_LABELS_PL["DELIVERED"]` is now `Odebrana` (was `Doreczona`) for consistency with `PICKED_UP`.
+- `TERMINAL_STATUSES` no longer includes `DELIVERED` / `PICKED_UP` — those moved to `RECENT_PICKUP_STATUSES`. Terminal set now contains only the "no-window" finals: `CANCELED`, `PICKUP_TIME_EXPIRED`.
+
+### Note
+- Remote opening of paczkomat compartments via API is **not possible** — the InPost mobile app uses Bluetooth Low Energy (BLE) proximity for compartment unlock, not pure HTTP. The integration exposes `open_code` (PIN) and `qr_code` attributes which are sufficient to unlock at the locker keypad/scanner manually. `tracking_url` deep-links to the InPost app on a phone.
+
 ## [0.10.2] - 2026-05-07
 
 ### Changed
