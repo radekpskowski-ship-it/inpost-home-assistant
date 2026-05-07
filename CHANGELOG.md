@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-07
+
+### Added
+- **QR code as `entity_picture`.** When a parcel reaches `READY_TO_PICKUP*` and the API exposes its `openCode`, the integration generates a PNG QR locally to `/config/www/inpost/<shipmentNumber>.png` and sets the parcel entity's `entity_picture` to `/local/inpost/<shipmentNumber>.png`. The Lovelace entity card / picture-glance card shows the QR inline alongside the address attribute. After pickup the `openCode` disappears from the API → PNG is deleted, `entity_picture` returns `None`, the status icon (`mdi:package-check`) becomes visible again.
+- **Privacy**: QR generation is fully local. The `openCode` (your locker PIN) is never sent to any third-party service. Requires a one-time install of `qrcode[pil]>=7.4.2` (HA pulls it automatically via `manifest.requirements`).
+
 ## [0.11.0] - 2026-05-07
 
 ### Added

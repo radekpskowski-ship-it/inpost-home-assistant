@@ -11,12 +11,18 @@ Model hybrydowy:
   Friendly name = adres ('ulica numer, miasto'). W atrybutach pelne info
   o paczkomacie + lista paczek.
 
+QR kody: gdy paczka jest gotowa do odbioru (PICKUP_STATUSES) i ma openCode,
+generujemy LOKALNIE PNG z QR-em w /config/www/inpost/<sn>.png i ustawiamy
+entity_picture = /local/inpost/<sn>.png. Po odbiorze openCode zniknie z API,
+QR PNG jest usuwany. Generacja lokalna - openCode NIE jest wysylany nigdzie.
+
 Encje znikaja przez grace period (AUTOREMOVE_GRACE_TICKS) gdy paczka osiagnie
 status terminalny / paczkomat sie oprozni.
 """
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import timedelta
 from typing import Any
@@ -40,6 +46,7 @@ from .const import (
     CONF_PHONE,
     DEFAULT_PARCEL_ICON,
     DOMAIN,
+    PICKUP_STATUSES,
     POST_PICKUP_VISIBILITY_HOURS,
     RECENT_PICKUP_STATUSES,
     STATUS_ICONS,
@@ -48,6 +55,9 @@ from .const import (
     canonicalize_sender,
     is_sender_ignored,
 )
+
+# Subfolder w /config/www/ na PNG-i z QR. HA serwuje /config/www/ pod URL /local/.
+_QR_SUBDIR = "inpost"
 from .coordinator import InpostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +67,52 @@ _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
 def _slug_for_entity_id(s: str) -> str:
     return _NON_ALNUM_RE.sub("_", str(s)).strip("_").lower()
+
+
+def _qr_dir(hass: HomeAssistant) -> str:
+    """Sciezka do /config/www/inpost/ - tworzy katalog jesli nie istnieje (sync, do executora)."""
+    path = hass.config.path("www", _QR_SUBDIR)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _qr_path_for(hass: HomeAssistant, sn: str) -> str:
+    return os.path.join(_qr_dir(hass), f"{sn}.png")
+
+
+def _qr_url_for(sn: str) -> str:
+    """URL relative do HA frontend - /local/ to alias dla /config/www/."""
+    return f"/local/{_QR_SUBDIR}/{sn}.png"
+
+
+def _generate_qr_png(open_code: str, output_path: str) -> None:
+    """Synchroniczna generacja QR PNG. Wywoluj przez async_add_executor_job.
+
+    Encoding: tylko openCode (PIN do paczkomatu) - to wszystko czego paczkomat
+    potrzebuje. Kod nie jest wysylany nigdzie poza lokalny dysk HA.
+    """
+    import qrcode  # imported lazily so we don't pay if no parcels yet
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(str(open_code))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    img.save(output_path, optimize=True)
+
+
+def _delete_qr_png(path: str) -> None:
+    """Synchroniczne usuwanie. Cicho ignoruje brak pliku."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        _LOGGER.debug("Nie udalo sie usunac %s", path, exc_info=True)
 
 
 def _is_recent_pickup_visible(parcel: dict) -> bool:
@@ -372,6 +428,57 @@ class InpostParcelSensor(InpostBase):
         self._attr_unique_id = f"{entry.entry_id}_parcel_{self._sn}"
         self._attr_suggested_object_id = f"paczka_{_slug_for_entity_id(self._sn)}"
         # name jest dynamiczny przez property `name` (sender z aliasow)
+        # Zapamietujemy ostatni openCode dla ktorego juz wygenerowany QR PNG -
+        # zeby nie regenerowac przy kazdym refresh API, tylko gdy sie zmieni.
+        self._qr_for_open_code: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # po dodaniu encji - sprawdz czy nalezy juz wygenerowac QR
+        await self._async_sync_qr()
+
+    async def async_will_remove_from_hass(self) -> None:
+        # uprzatamy plik PNG przy usuwaniu encji z registry
+        await self.hass.async_add_executor_job(
+            _delete_qr_png, _qr_path_for(self.hass, self._sn)
+        )
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        # przy kazdym refreshu coordinatora - synchronizuj QR PNG (async)
+        self.hass.async_create_task(self._async_sync_qr())
+        super()._handle_coordinator_update()
+
+    async def _async_sync_qr(self) -> None:
+        """Generuje PNG gdy openCode dostepny + paczka w paczkomacie; usuwa gdy nie."""
+        d = self._data()
+        path = _qr_path_for(self.hass, self._sn)
+        open_code = (d or {}).get("openCode") if d else None
+        in_locker = bool(d) and d.get("status") in PICKUP_STATUSES
+        if open_code and in_locker:
+            if self._qr_for_open_code == open_code and os.path.exists(path):
+                return  # juz wygenerowany dla tego openCode
+            try:
+                await self.hass.async_add_executor_job(
+                    _generate_qr_png, open_code, path
+                )
+                self._qr_for_open_code = open_code
+                _LOGGER.debug("InPost: wygenerowany QR dla %s", self._sn)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("InPost: blad generacji QR dla %s", self._sn)
+        else:
+            # po odbiorze / przed paczkomatem - usun PNG jesli zostal
+            if self._qr_for_open_code is not None or os.path.exists(path):
+                await self.hass.async_add_executor_job(_delete_qr_png, path)
+                self._qr_for_open_code = None
+
+    @property
+    def entity_picture(self) -> str | None:
+        """URL QR PNG jesli wygenerowany - inaczej None (HA pokaze ikone statusu)."""
+        if self._qr_for_open_code:
+            return _qr_url_for(self._sn)
+        return None
 
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
