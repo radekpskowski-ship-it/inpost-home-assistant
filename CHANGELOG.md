@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-07
+
+### ⚠ BREAKING — Per-paczkomat entity model
+- **Per-parcel sensors removed.** `sensor.inpost_paczka_<shipmentNumber>` no longer exists.
+- **New per-paczkomat sensors.** `sensor.inpost_paczkomat_<code>` is created dynamically when at least one parcel is waiting at that locker. Removed via grace period (~30 min) when the locker becomes empty.
+  - **State** = number of parcels currently waiting at this paczkomat (ignored senders excluded)
+  - **Attributes**: `pickup_point`, `address`, `city`, `street`, `post_code`, `latitude`, `longitude`, `opening_hours`, `location_description`, `is_24_7`, `easy_access_zone`, `count`, **`parcels`** (list of `{shipment_number, sender, sender_raw, open_code, qr_code, expiry_date, stored_date, status_raw}`).
+- **Why**: focuses entirely on the "actionable" state — when something is at the paczkomat. Parcels in transit (CONFIRMED, OUT_FOR_DELIVERY, etc.) no longer surface as entities; track them in the InPost mobile app directly.
+
+### Migration notes
+Automations referencing `sensor.inpost_paczka_*` need to be updated to use `sensor.inpost_paczkomat_*` instead. Example:
+```yaml
+# old (0.5.0–0.8.0)
+trigger:
+  - platform: state
+    entity_id: sensor.inpost_paczka_520000013815668103180697
+
+# new (0.9.0+)
+trigger:
+  - platform: state
+    entity_id: sensor.inpost_paczkomat_bia45m
+    # state increments when a parcel arrives, decrements on pickup
+```
+
 ## [0.8.0] - 2026-05-07
 
 ### Added
