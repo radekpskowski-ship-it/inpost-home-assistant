@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-07
+
+### Hybrid entity model: per-parcel + per-paczkomat
+- **`sensor.inpost_paczka_<shipmentNumber>`** restored — one entity per active parcel (every non-terminal status). State = Polish status label, friendly name = sender (via aliases). All attributes from 0.8.0 (status_raw, status_group, sender, sender_raw, references, courier_phone_number, tracking_url, shipment_type, pickup_date, can_collect, address, lat/lon, open_code, qr_code, expiry, stored_date, opening_hours, is_24_7, easy_access_zone).
+- **`sensor.inpost_paczkomat_<code>`** added — one entity per paczkomat that physically holds 1+ parcels right now. State = number of parcels at that locker. **Friendly name = address** in the format `ulica numer, miasto` (e.g. `Sienkiewicza 12, Białystok`). Attributes: `pickup_point` (raw code), `address` (with postcode), `city`, `street`, `post_code`, `latitude`, `longitude`, `opening_hours`, `location_description`, `is_24_7`, `easy_access_zone`, `count`, `parcels` (list with shipment_number, sender, open_code, qr_code, expiry, status_raw).
+- Both entity types are dynamic: created when relevant data appears in the API, removed via 2-tick grace period (~30 min) when the parcel reaches a terminal status / the paczkomat empties.
+- Filtering rules unchanged: `eryk sssss` and other ignored senders are skipped from both entity sets and from notifications.
+
+### Removed
+- Migration cleanup from 0.9.1 — no longer needed since per-parcel entities are back.
+
 ## [0.9.1] - 2026-05-07
 
 ### Fixed

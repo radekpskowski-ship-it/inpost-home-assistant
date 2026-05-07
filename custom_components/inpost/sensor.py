@@ -1,10 +1,18 @@
-"""Sensory: jeden per PACZKOMAT z aktywnymi paczkami + sensor zbiorczy + 'najblizsza paczka [m]'.
+"""Sensory: zbiorczy + 'najblizsza paczka [m]' + per-paczka + per-paczkomat.
 
-Encja per paczkomat dziala w ten sposob: gdy 1+ paczka uzytkownika trafi do
-konkretnego paczkomatu, powstaje `sensor.inpost_paczkomat_<kod>`. State = ile
-paczek tam czeka, atrybuty zawieraja adres / lat-lon / godziny + liste paczek.
-Encja znika po 2 pustych odczytach (grace) gdy wszystkie paczki w niej zostana
-odebrane.
+Model hybrydowy:
+- `sensor.inpost_paczka_<shipmentNumber>` per paczka, state = polski label statusu
+  (np. 'Potwierdzona', 'W doreczeniu'). Friendly name = nazwa nadawcy
+  (z aliasow: Cainiao -> AliExpress itd.). Tworzona dla kazdej paczki w API
+  poza statusami terminalnymi (DELIVERED/PICKED_UP/CANCELED/PICKUP_TIME_EXPIRED)
+  i ignorowanymi nadawcami (`eryk sssss`).
+- `sensor.inpost_paczkomat_<kod>` per paczkomat - tworzona TYLKO gdy 1+ paczka
+  fizycznie czeka w nim (statusy PICKUP_STATUSES). State = liczba paczek.
+  Friendly name = adres ('ulica numer, miasto'). W atrybutach pelne info
+  o paczkomacie + lista paczek.
+
+Encje znikaja przez grace period (AUTOREMOVE_GRACE_TICKS) gdy paczka osiagnie
+status terminalny / paczkomat sie oprozni.
 """
 from __future__ import annotations
 
@@ -28,7 +36,11 @@ from .const import (
     CONF_DEVICE_TRACKER,
     CONF_DEVICE_TRACKERS,
     CONF_PHONE,
+    DEFAULT_PARCEL_ICON,
     DOMAIN,
+    STATUS_ICONS,
+    STATUS_LABELS_PL,
+    TERMINAL_STATUSES,
     canonicalize_sender,
     is_sender_ignored,
 )
@@ -36,8 +48,6 @@ from .coordinator import InpostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Sanitizacja kodu paczkomatu pod entity_id (HA wymaga [a-z0-9_]).
-# UWAGA: dla unique_id uzywamy SUROWEJ nazwy - chroni przed kolizjami slug.
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -45,80 +55,117 @@ def _slug_for_entity_id(s: str) -> str:
     return _NON_ALNUM_RE.sub("_", str(s)).strip("_").lower()
 
 
+def _format_pp_address(addr_details: dict, *, with_postcode: bool = False) -> str:
+    """Buduje krotki adres paczkomatu: 'ulica numer, miasto' (lub z kodem gdy with_postcode).
+
+    addr_details: pickUpPoint.addressDetails z API (street/buildingNumber/city/postCode).
+    """
+    street = (addr_details.get("street") or "").strip()
+    building = (addr_details.get("buildingNumber") or "").strip()
+    city = (addr_details.get("city") or "").strip()
+    post = (addr_details.get("postCode") or "").strip()
+    line1 = " ".join(x for x in [street, building] if x).strip()
+    if with_postcode and post:
+        right = f"{post} {city}".strip() if city else post
+    else:
+        right = city
+    parts = [x for x in [line1, right] if x]
+    return ", ".join(parts)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coord: InpostCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
-    # static: zbiorczy + 'najblizszy paczkomat'
+    # static
     async_add_entities([
         InpostCountSensor(coord, entry),
         InpostNearestSensor(coord, entry),
     ])
 
-    # MIGRACJA z <0.9.0: starsze wersje tworzyly encje per paczka z prefixem
-    # `_parcel_`. Nowy kod ich nie tworzy, ale registry je trzyma jako sieroty.
-    # Usuwamy je raz przy starcie - czyste przejscie na model per-paczkomat.
     parcel_uid_prefix = f"{entry.entry_id}_parcel_"
-    ent_reg_init = er.async_get(hass)
-    for ent in list(er.async_entries_for_config_entry(ent_reg_init, entry.entry_id)):
-        if (ent.unique_id or "").startswith(parcel_uid_prefix):
-            _LOGGER.info("InPost: migracja - usuwam stara encje %s (model per-paczka)", ent.entity_id)
-            ent_reg_init.async_remove(ent.entity_id)
-
-    # dynamiczne: synchronizujemy entity_registry z aktywnymi paczkomatami.
-    # Klucz: surowa nazwa pickup_point (np. "BIA45M").
     pp_uid_prefix = f"{entry.entry_id}_pickup_point_"
-    miss_count: dict[str, int] = {}
+    parcel_miss: dict[str, int] = {}  # sn -> ile pustych odczytow
+    pp_miss: dict[str, int] = {}      # pp_name -> ile pustych odczytow
 
     @callback
     def _refresh() -> None:
         ent_reg = er.async_get(hass)
+        new_entities: list[SensorEntity] = []
 
-        # zbierz unikalne paczkomaty z aktywnymi paczkami (tylko PICKUP_STATUSES,
-        # pomijajac ignorowanych nadawcow)
-        active: set[str] = set()
+        # ============ PER-PACZKA ============
+        # Aktywne paczki = wszystkie w API poza terminalami i ignorowanymi nadawcami.
+        active_parcels: set[str] = set()
+        for p in coord.all_parcels:
+            if p.get("status") in TERMINAL_STATUSES:
+                continue
+            if is_sender_ignored((p.get("sender") or {}).get("name")):
+                continue
+            sn = p.get("shipmentNumber") or p.get("id")
+            if sn:
+                active_parcels.add(str(sn))
+
+        existing_parcels: set[str] = set()
+        for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+            uid = ent.unique_id or ""
+            if uid.startswith(parcel_uid_prefix):
+                existing_parcels.add(uid[len(parcel_uid_prefix):])
+
+        for sn in active_parcels - existing_parcels:
+            new_entities.append(InpostParcelSensor(coord, entry, sn))
+        for sn in active_parcels:
+            parcel_miss.pop(sn, None)
+        for sn in existing_parcels - active_parcels:
+            parcel_miss[sn] = parcel_miss.get(sn, 0) + 1
+            if parcel_miss[sn] < AUTOREMOVE_GRACE_TICKS:
+                _LOGGER.debug(
+                    "InPost: paczka %s nieobecna (%d/%d) - czekam przed usunieciem",
+                    sn, parcel_miss[sn], AUTOREMOVE_GRACE_TICKS,
+                )
+                continue
+            entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, parcel_uid_prefix + sn)
+            if entity_id:
+                _LOGGER.info("InPost: usuwam encje paczki %s (terminal/ignore)", entity_id)
+                ent_reg.async_remove(entity_id)
+            parcel_miss.pop(sn, None)
+
+        # ============ PER-PACZKOMAT ============
+        # Paczkomat tworzony tylko gdy paczka FIZYCZNIE w nim (PICKUP_STATUSES).
+        active_pps: set[str] = set()
         for p in coord.pickup_parcels:
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
-            pp = p.get("pickUpPoint") or {}
-            pp_name = pp.get("name")
+            pp_name = (p.get("pickUpPoint") or {}).get("name")
             if pp_name:
-                active.add(str(pp_name))
+                active_pps.add(str(pp_name))
 
-        # encje paczkomatow znane registry'emu
-        existing: set[str] = set()
+        existing_pps: set[str] = set()
         for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
             uid = ent.unique_id or ""
             if uid.startswith(pp_uid_prefix):
-                existing.add(uid[len(pp_uid_prefix):])
+                existing_pps.add(uid[len(pp_uid_prefix):])
 
-        # ADD: nowe paczkomaty bez encji
-        new_entities: list[SensorEntity] = []
-        for pp_name in active - existing:
+        for pp_name in active_pps - existing_pps:
             new_entities.append(InpostPickupPointSensor(coord, entry, pp_name))
-        if new_entities:
-            async_add_entities(new_entities)
-
-        # zresetuj licznik missow dla paczkomatow ktore wrocily
-        for pp_name in active:
-            miss_count.pop(pp_name, None)
-
-        # GRACE: usuwamy puste paczkomaty po N pustych odczytach
-        for pp_name in existing - active:
-            miss_count[pp_name] = miss_count.get(pp_name, 0) + 1
-            if miss_count[pp_name] < AUTOREMOVE_GRACE_TICKS:
+        for pp_name in active_pps:
+            pp_miss.pop(pp_name, None)
+        for pp_name in existing_pps - active_pps:
+            pp_miss[pp_name] = pp_miss.get(pp_name, 0) + 1
+            if pp_miss[pp_name] < AUTOREMOVE_GRACE_TICKS:
                 _LOGGER.debug(
                     "InPost: paczkomat %s pusty (%d/%d) - czekam przed usunieciem",
-                    pp_name, miss_count[pp_name], AUTOREMOVE_GRACE_TICKS,
+                    pp_name, pp_miss[pp_name], AUTOREMOVE_GRACE_TICKS,
                 )
                 continue
-            unique_id = pp_uid_prefix + pp_name
-            entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
+            entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, pp_uid_prefix + pp_name)
             if entity_id:
-                _LOGGER.info("InPost: usuwam encje %s (wszystkie paczki odebrane)", entity_id)
+                _LOGGER.info("InPost: usuwam encje paczkomatu %s (pusty)", entity_id)
                 ent_reg.async_remove(entity_id)
-            miss_count.pop(pp_name, None)
+            pp_miss.pop(pp_name, None)
+
+        if new_entities:
+            async_add_entities(new_entities)
 
     _refresh()
     entry.async_on_unload(coord.async_add_listener(_refresh))
@@ -148,10 +195,7 @@ class InpostBase(CoordinatorEntity[InpostCoordinator], SensorEntity):
 
 
 class InpostCountSensor(InpostBase):
-    """Liczba paczek aktualnie czekajacych w paczkomacie do odbioru.
-
-    State = liczba paczek w PICKUP_STATUSES (z pominieciem ignorowanych nadawcow).
-    """
+    """Liczba paczek aktualnie czekajacych w paczkomacie do odbioru."""
 
     _attr_translation_key = "count"
     _attr_name = "Paczki do odbioru"
@@ -171,7 +215,7 @@ class InpostCountSensor(InpostBase):
 
 
 class InpostNearestSensor(InpostBase):
-    """Dystans (m) z wybranego device_tracker do najblizszego paczkomatu z paczka do odbioru."""
+    """Dystans (m) z device_tracker do najblizszego paczkomatu z paczka do odbioru."""
 
     _attr_translation_key = "nearest_distance"
     _attr_name = "Najblizsza paczka (dystans)"
@@ -196,9 +240,7 @@ class InpostNearestSensor(InpostBase):
         trackers = self._trackers
         if trackers:
             self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, trackers, self._tracker_changed
-                )
+                async_track_state_change_event(self.hass, trackers, self._tracker_changed)
             )
         self.async_write_ha_state()
 
@@ -282,13 +324,115 @@ class InpostNearestSensor(InpostBase):
         }
 
 
+class InpostParcelSensor(InpostBase):
+    """Pojedyncza paczka - state = polski label statusu, friendly name = nadawca."""
+
+    def __init__(self, coord: InpostCoordinator, entry: ConfigEntry, shipment_number: str):
+        super().__init__(coord, entry)
+        self._sn = str(shipment_number)
+        # unique_id: SUROWY shipmentNumber - chroni przed kolizjami slug
+        self._attr_unique_id = f"{entry.entry_id}_parcel_{self._sn}"
+        self._attr_suggested_object_id = f"paczka_{_slug_for_entity_id(self._sn)}"
+        # name jest dynamiczny przez property `name` (sender z aliasow)
+
+    def _data(self) -> dict | None:
+        for p in self.coordinator.all_parcels:
+            if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
+                if p.get("status") in TERMINAL_STATUSES:
+                    return None
+                if is_sender_ignored((p.get("sender") or {}).get("name")):
+                    return None
+                return p
+        return None
+
+    @property
+    def name(self) -> str:
+        d = self._data()
+        raw = (d.get("sender") or {}).get("name") if d else None
+        sender = canonicalize_sender(raw)
+        if sender:
+            if len(sender) > 40:
+                sender = sender[:40].rstrip() + "…"
+            return sender
+        return f"Paczka {self._sn}"
+
+    @property
+    def available(self) -> bool:
+        return self._data() is not None
+
+    @property
+    def icon(self) -> str:
+        d = self._data()
+        if not d:
+            return DEFAULT_PARCEL_ICON
+        return STATUS_ICONS.get(d.get("status") or "", DEFAULT_PARCEL_ICON)
+
+    @property
+    def native_value(self) -> str | None:
+        d = self._data()
+        if not d:
+            return None
+        status = d.get("status")
+        if not status:
+            return None
+        return STATUS_LABELS_PL.get(status, status)
+
+    @property
+    def entity_picture(self) -> str | None:
+        d = self._data()
+        if not d:
+            return None
+        return (d.get("pickUpPoint") or {}).get("imageUrl")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        d = self._data()
+        if not d:
+            return {}
+        pp = d.get("pickUpPoint") or {}
+        loc = pp.get("location") or {}
+        addr = pp.get("addressDetails") or {}
+        refs = d.get("references")
+        if isinstance(refs, dict):
+            refs = refs.get("value")
+        raw_sender = (d.get("sender") or {}).get("name")
+        ops = d.get("operations") or {}
+        return {
+            "shipment_number": d.get("shipmentNumber"),
+            "status_raw": d.get("status"),
+            "status_group": d.get("statusGroup"),
+            "sender": canonicalize_sender(raw_sender),
+            "sender_raw": raw_sender,
+            "references": refs,
+            "estimated_delivery_date": d.get("estimatedDeliveryDate"),
+            "courier_phone_number": d.get("courierPhoneNumber"),
+            "tracking_url": ops.get("redirectionUrl"),
+            "shipment_type": d.get("shipmentType"),
+            "pickup_date": d.get("pickUpDate"),
+            "can_collect": ops.get("collect"),
+            "pickup_point": pp.get("name"),
+            "address": _format_pp_address(addr, with_postcode=True),
+            "city": addr.get("city"),
+            "street": addr.get("street"),
+            "post_code": addr.get("postCode"),
+            "latitude": loc.get("latitude"),
+            "longitude": loc.get("longitude"),
+            "open_code": d.get("openCode"),
+            "qr_code": d.get("qrCode"),
+            "expiry_date": d.get("expiryDate"),
+            "stored_date": d.get("storedDate"),
+            "opening_hours": pp.get("openingHours"),
+            "location_description": pp.get("locationDescription"),
+            "is_24_7": pp.get("location247"),
+            "easy_access_zone": pp.get("easyAccessZone"),
+        }
+
+
 class InpostPickupPointSensor(InpostBase):
     """Paczkomat z paczkami czekajacymi na odbior.
 
-    State = liczba paczek w tym paczkomacie. Atrybuty: adres, wspolrzedne,
-    godziny otwarcia + lista paczek (sender, open_code, qr_code, expiry).
-    Encja istnieje tylko gdy 1+ paczka czeka - po pustym refreshu znika
-    przez grace period (AUTOREMOVE_GRACE_TICKS).
+    State = liczba paczek tam czekajacych. Friendly name = adres
+    ('ulica numer, miasto'). Atrybuty: pelne info paczkomatu + lista paczek.
     """
 
     _attr_icon = "mdi:package-variant-closed-check"
@@ -296,12 +440,9 @@ class InpostPickupPointSensor(InpostBase):
     def __init__(self, coord: InpostCoordinator, entry: ConfigEntry, pickup_point_name: str):
         super().__init__(coord, entry)
         self._pp = str(pickup_point_name)
-        # unique_id: SUROWA nazwa paczkomatu (chroni przed kolizjami slug)
         self._attr_unique_id = f"{entry.entry_id}_pickup_point_{self._pp}"
-        # entity_id sufix: alfanumeryczny
         self._attr_suggested_object_id = f"paczkomat_{_slug_for_entity_id(self._pp)}"
-        # name = kod paczkomatu (HA i tak doda prefix urzadzenia "InPost ")
-        self._attr_name = self._pp
+        # name dynamiczny - z adresu paczkomatu
 
     def _parcels(self) -> list[dict]:
         out = []
@@ -312,6 +453,15 @@ class InpostPickupPointSensor(InpostBase):
             if str(pp.get("name") or "") == self._pp:
                 out.append(p)
         return out
+
+    @property
+    def name(self) -> str:
+        parcels = self._parcels()
+        if not parcels:
+            return self._pp  # fallback gdy chwilowo brak paczek
+        addr = (parcels[0].get("pickUpPoint") or {}).get("addressDetails") or {}
+        formatted = _format_pp_address(addr, with_postcode=False)
+        return formatted or self._pp
 
     @property
     def available(self) -> bool:
@@ -333,15 +483,9 @@ class InpostPickupPointSensor(InpostBase):
         parcels = self._parcels()
         if not parcels:
             return {}
-        # info o paczkomacie - bierzemy z pierwszej paczki (te same dla wszystkich w tym pp)
         pp = parcels[0].get("pickUpPoint") or {}
         loc = pp.get("location") or {}
         addr = pp.get("addressDetails") or {}
-        address_str = " ".join(x for x in [
-            addr.get("street"),
-            addr.get("buildingNumber"),
-            f'({addr.get("postCode", "")} {addr.get("city", "")})'.strip(),
-        ] if x).strip()
         parcel_list = []
         for p in parcels:
             raw_sender = (p.get("sender") or {}).get("name")
@@ -357,7 +501,7 @@ class InpostPickupPointSensor(InpostBase):
             })
         return {
             "pickup_point": self._pp,
-            "address": address_str,
+            "address": _format_pp_address(addr, with_postcode=True),
             "city": addr.get("city"),
             "street": addr.get("street"),
             "post_code": addr.get("postCode"),
