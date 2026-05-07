@@ -140,6 +140,13 @@ class InpostBase(CoordinatorEntity[InpostCoordinator], SensorEntity):
 
 
 class InpostCountSensor(InpostBase):
+    """Liczba paczek aktualnie czekajacych w paczkomacie do odbioru.
+
+    State = liczba paczek w PICKUP_STATUSES. Aktualizowana dynamicznie przy
+    kazdym refreshu API (UPDATE_INTERVAL_MIN = 15 min). Adresy / detale paczek
+    sa na encjach `sensor.inpost_paczka_<sn>` per paczka - tu tylko licznik.
+    """
+
     _attr_translation_key = "count"
     _attr_name = "Paczki do odbioru"
     _attr_icon = "mdi:package-variant-closed-check"
@@ -152,13 +159,6 @@ class InpostCountSensor(InpostBase):
     @property
     def native_value(self) -> int:
         return len(self.coordinator.pickup_parcels)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return {
-            "parcels": [p.get("shipmentNumber") for p in self.coordinator.pickup_parcels],
-            "all_tracked": len(self.coordinator.all_parcels),
-        }
 
 
 class InpostNearestSensor(InpostBase):
@@ -359,13 +359,20 @@ class InpostParcelSensor(InpostBase):
             refs = refs.get("value")
 
         raw_sender = (d.get("sender") or {}).get("name")
+        ops = d.get("operations") or {}
         return {
             "shipment_number": d.get("shipmentNumber"),
             "status_raw": d.get("status"),
+            "status_group": d.get("statusGroup"),
             "sender": canonicalize_sender(raw_sender),
             "sender_raw": raw_sender,
             "references": refs,
             "estimated_delivery_date": d.get("estimatedDeliveryDate"),
+            "courier_phone_number": d.get("courierPhoneNumber"),
+            "tracking_url": ops.get("redirectionUrl"),
+            "shipment_type": d.get("shipmentType"),
+            "pickup_date": d.get("pickUpDate"),
+            "can_collect": ops.get("collect"),
             "pickup_point": pp.get("name"),
             "address": " ".join(x for x in [
                 addr.get("street"),

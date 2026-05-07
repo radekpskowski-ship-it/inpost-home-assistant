@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-07
+
+### Added
+Per-parcel sensor exposes more API fields as attributes:
+- **`courier_phone_number`** — phone to reach the courier (only set when `status=OUT_FOR_DELIVERY`)
+- **`tracking_url`** — `https://inpost.pl/redirect/?token=…` link to open the parcel in InPost web/app
+- **`status_group`** — high-level bucket (`TO_SEND` / `IN_DELIVERY` / `READY_FOR_PICKUP` / `DELIVERED`); much easier to use in automations than the 25+ raw statuses
+- **`shipment_type`** — `courier` / `parcel_locker`
+- **`pickup_date`** — when the parcel was picked up (set on `DELIVERED`)
+- **`can_collect`** — `True/False` from `operations.collect` (whether collection is currently possible)
+
+### Changed
+- `InpostCountSensor` ("Paczki do odbioru") simplified — now exposes only the count as state, no extra attributes (per-parcel detail belongs on the parcel entities, not on the aggregate count).
+
 ## [0.7.1] - 2026-05-07
 
 ### Added
