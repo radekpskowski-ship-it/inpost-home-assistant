@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-05-07
+
+### Changed (vs 0.12.0)
+- **QR moved to a dedicated entity.** Reverted: 0.12.0 set `entity_picture` to the QR PNG **on the parcel entity itself**, which masked the status icon (`mdi:truck-delivery`, etc.). Now there is a separate entity `sensor.inpost_qr_paczka_<shipmentNumber>`, dedicated to the dashboard preview of the QR + address; the parcel entity (`sensor.inpost_paczka_<sn>`) keeps its status icon untouched.
+
+### Added
+- **`InpostPickupQRSensor`** — one entity per parcel that is currently in a paczkomat with an `openCode`. Created dynamically when status enters `PICKUP_STATUSES`, removed via grace period after pickup.
+  - **Friendly name** = paczkomat address `ulica numer, miasto`
+  - **State** = `openCode` (4-digit PIN — useful in templates / displays)
+  - **`entity_picture`** = locally-generated QR PNG (`/local/inpost/<sn>.png`)
+  - **Attributes**: `shipment_number`, `sender`, `open_code`, `qr_image_url`, `pickup_point` (raw code), `address` (with postcode), `city`, `street`, `post_code`, `expiry_date`, `stored_date`
+- Lovelace tip — drop one card per parcel onto the dashboard:
+  ```yaml
+  type: entity
+  entity: sensor.inpost_qr_paczka_520099999900000000000001
+  # name auto: "Upalna 64, Białystok"
+  # state auto: "1234" (open_code)
+  # picture auto: QR
+  ```
+
 ## [0.12.0] - 2026-05-07
 
 ### Added
