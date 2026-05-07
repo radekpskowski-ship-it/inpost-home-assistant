@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-05-07
+
+### Changed
+- **`image.inpost_qr_paczka_<sn>` state = openCode** (PIN, 4-6 digits) instead of HA's default `image_last_updated.isoformat()` timestamp. The `picture-entity` card now shows `Upalna 64, Białystok • 1234` instead of `Upalna 64, Białystok • 2026-05-07T20:00:35+00:00`. Image fetching uses `image_last_updated` independently — no impact on cache invalidation.
+
 ## [0.13.1] - 2026-05-07
 
 ### Fixed

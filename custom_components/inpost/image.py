@@ -165,6 +165,19 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
         return self._data() is not None
 
     @property
+    def state(self) -> str | None:
+        """Override default timestamp state - pokazujemy kod odbioru (openCode).
+
+        Domyslny ImageEntity.state = image_last_updated.isoformat() (timestamp).
+        Ale w UI przy karcie obok adresu lepszy jest 4-cyfrowy kod do paczkomatu.
+        Image fetching dziala niezaleznie - uzywa image_last_updated, nie state.
+        """
+        d = self._data()
+        if not d:
+            return None
+        return d.get("openCode")
+
+    @property
     def name(self) -> str:
         d = self._data()
         if not d:
