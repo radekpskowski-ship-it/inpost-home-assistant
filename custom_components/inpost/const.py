@@ -38,6 +38,17 @@ PICKUP_STATUSES = {
     "PICKUP_REMINDER_SENT",
 }
 
+# Statusy "terminalne" - paczka skonczona. Uzytkownik nie chce ich w UI HA, wiec encje
+# sa pomijane przy tworzeniu i usuwane gdy istniejaca paczka tu trafi (przez normalny grace period).
+TERMINAL_STATUSES = {
+    "DELIVERED",
+    "PICKED_UP",
+    "RETURNED_TO_SENDER",
+    "RETURNED_TO_SOURCE_BRANCH",
+    "CANCELED",
+    "PICKUP_TIME_EXPIRED",
+}
+
 # Pelny slownik statusow API mobilnego InPost -> czytelna etykieta PL.
 # Encja paczki dziedziczy state z tej mapy (fallback: surowy status).
 STATUS_LABELS_PL: dict[str, str] = {

@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-07
+
+### Added
+- **Extra parcel attributes**: `references` (sender's order ID, e.g. Allegro/Amazon), `parcel_size`, `weight`, `estimated_delivery_date`. Useful for matching parcels to specific orders or driving dashboards by delivery ETA.
+
+### Changed
+- **Hide finished parcels.** Parcel sensors are no longer created for terminal statuses (`DELIVERED`, `PICKED_UP`, `RETURNED_TO_SENDER`, `RETURNED_TO_SOURCE_BRANCH`, `CANCELED`, `PICKUP_TIME_EXPIRED`). Existing entities transition to `unavailable` once a parcel reaches a terminal status and are removed by the normal grace period (2 ticks = 30 min) — keeps the UI clean of completed deliveries.
+
 ## [0.5.0] - 2026-05-07
 
 ### Added

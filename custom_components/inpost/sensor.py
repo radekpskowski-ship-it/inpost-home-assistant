@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
     STATUS_ICONS,
     STATUS_LABELS_PL,
+    TERMINAL_STATUSES,
 )
 from .coordinator import InpostCoordinator
 
@@ -59,8 +60,13 @@ async def async_setup_entry(
     def _refresh() -> None:
         ent_reg = er.async_get(hass)
 
+        # Pomijamy paczki w statusach terminalnych (DELIVERED/PICKED_UP/RETURNED itd.) -
+        # nie chcemy ich w UI. Istniejace encje paczek ktore wlasnie tu trafily przejda
+        # przez normalny grace period (active mniejsze -> miss_count rosnie -> remove).
         active: set[str] = set()
         for p in coord.all_parcels:
+            if p.get("status") in TERMINAL_STATUSES:
+                continue
             sn = p.get("shipmentNumber") or p.get("id")
             if sn:
                 active.add(str(sn))
@@ -276,6 +282,10 @@ class InpostParcelSensor(InpostBase):
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
+                # Po wejsciu w status terminalny encja staje sie unavailable (zostanie
+                # usunieta przez grace period w _refresh).
+                if p.get("status") in TERMINAL_STATUSES:
+                    return None
                 return p
         return None
 
@@ -315,10 +325,20 @@ class InpostParcelSensor(InpostBase):
         pp = d.get("pickUpPoint") or {}
         loc = pp.get("location") or {}
         addr = pp.get("addressDetails") or {}
+        # references = numer zamowienia od nadawcy (np. ID zamowienia Allegro/Amazon).
+        # API zwraca albo string, albo dict {"value": ...} - obsluzmy oba ksztalty.
+        refs = d.get("references")
+        if isinstance(refs, dict):
+            refs = refs.get("value")
+
         return {
             "shipment_number": d.get("shipmentNumber"),
             "status_raw": d.get("status"),
             "sender": (d.get("sender") or {}).get("name"),
+            "references": refs,
+            "parcel_size": d.get("parcelSize"),
+            "weight": d.get("weight"),
+            "estimated_delivery_date": d.get("estimatedDeliveryDate"),
             "pickup_point": pp.get("name"),
             "address": " ".join(x for x in [
                 addr.get("street"),
