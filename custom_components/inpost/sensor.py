@@ -56,6 +56,16 @@ async def async_setup_entry(
         InpostNearestSensor(coord, entry),
     ])
 
+    # MIGRACJA z <0.9.0: starsze wersje tworzyly encje per paczka z prefixem
+    # `_parcel_`. Nowy kod ich nie tworzy, ale registry je trzyma jako sieroty.
+    # Usuwamy je raz przy starcie - czyste przejscie na model per-paczkomat.
+    parcel_uid_prefix = f"{entry.entry_id}_parcel_"
+    ent_reg_init = er.async_get(hass)
+    for ent in list(er.async_entries_for_config_entry(ent_reg_init, entry.entry_id)):
+        if (ent.unique_id or "").startswith(parcel_uid_prefix):
+            _LOGGER.info("InPost: migracja - usuwam stara encje %s (model per-paczka)", ent.entity_id)
+            ent_reg_init.async_remove(ent.entity_id)
+
     # dynamiczne: synchronizujemy entity_registry z aktywnymi paczkomatami.
     # Klucz: surowa nazwa pickup_point (np. "BIA45M").
     pp_uid_prefix = f"{entry.entry_id}_pickup_point_"

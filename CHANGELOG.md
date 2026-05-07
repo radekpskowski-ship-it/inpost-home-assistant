@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-07
+
+### Fixed
+- Auto-migration on setup: orphaned `sensor.inpost_paczka_*` entities left over from 0.5.0–0.8.0 are now removed from `entity_registry` on first refresh. Without this they sat as unavailable entities cluttering the registry after upgrading to 0.9.0.
+
 ## [0.9.0] - 2026-05-07
 
 ### ⚠ BREAKING — Per-paczkomat entity model
