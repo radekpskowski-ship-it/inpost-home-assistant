@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-05-07
+
+### Fixed
+- **openCode visible in card title, not as broken date**. v0.13.2 overrode `state` to return `openCode` (e.g. `"5678"`), but the HA frontend parses image-domain state as ISO timestamp — so `"5678"` got rendered as `1 stycznia 5678 01:00` (year 5678, January 1st). Reverted state override; openCode is now part of the entity **name** instead: `Upalna 64, Białystok • 1234`. Frontend renders it as text. State stays as `image_last_updated` timestamp (can be hidden in `picture-entity` card with `show_state: false`).
+
 ## [0.13.2] - 2026-05-07
 
 ### Changed

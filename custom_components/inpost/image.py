@@ -164,27 +164,28 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
     def available(self) -> bool:
         return self._data() is not None
 
-    @property
-    def state(self) -> str | None:
-        """Override default timestamp state - pokazujemy kod odbioru (openCode).
-
-        Domyslny ImageEntity.state = image_last_updated.isoformat() (timestamp).
-        Ale w UI przy karcie obok adresu lepszy jest 4-cyfrowy kod do paczkomatu.
-        Image fetching dziala niezaleznie - uzywa image_last_updated, nie state.
-        """
-        d = self._data()
-        if not d:
-            return None
-        return d.get("openCode")
+    # UWAGA: NIE nadpisujemy `state` - HA frontend dla image domain parsuje state
+    # jako timestamp i wyswietla "1 stycznia 5678 01:00" gdy zwrocimy "5678".
+    # Zamiast tego openCode wstawiamy do `name` - frontend renderuje to jako
+    # tekst, nie jako date. State pozostaje timestamp (mozna ukryc w karcie
+    # picture-entity przez `show_state: false`).
 
     @property
     def name(self) -> str:
+        """Friendly name = adres • openCode (oba widoczne w tytule karty)."""
         d = self._data()
         if not d:
             return f"QR Paczka {self._sn}"
         addr = (d.get("pickUpPoint") or {}).get("addressDetails") or {}
         formatted = _format_pp_address(addr, with_postcode=False)
-        return formatted or f"QR Paczka {self._sn}"
+        open_code = (d.get("openCode") or "").strip()
+        if formatted and open_code:
+            return f"{formatted} • {open_code}"
+        if formatted:
+            return formatted
+        if open_code:
+            return f"Kod {open_code}"
+        return f"QR Paczka {self._sn}"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
