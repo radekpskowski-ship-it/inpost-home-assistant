@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish a Release for (e.g. v0.5.0). Required only for manual backfill."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout at tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+
+      - name: Extract changelog section for this tag
+        id: notes
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          VERSION="${TAG#v}"
+          # wyciagnij sekcje "## [VERSION] ..." z CHANGELOG.md (do nastepnego naglowka ## [)
+          NOTES=$(awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { capturing=1; print; next }
+            capturing && /^## \[/ { exit }
+            capturing { print }
+          ' CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $TAG"
+          fi
+          {
+            echo "body<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: false
+          make_latest: "true"
