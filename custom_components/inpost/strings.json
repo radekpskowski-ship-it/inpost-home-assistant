@@ -21,11 +21,8 @@
         "data": {
           "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
-          "notify_services": "Serwisy notify - oddzielone przecinkami (np. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
-          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
-          "tts_message": "Tekst TTS (puste = TTS wylaczone)",
-          "tts_service": "Serwis TTS (np. tts.google_translate_say lub tts.cloud_say)",
-          "tts_targets": "Media playery dla TTS (mozna wybrac kilka)"
+          "notify_service": "Serwis notify (np. notify.mobile_app_pixel_8)",
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej"
         }
       },
       "reauth_confirm": {
@@ -49,15 +46,12 @@
     "step": {
       "init": {
         "title": "InPost - opcje",
-        "description": "Telefony z aplikacji HA Companion oraz konfiguracja powiadomien (push + TTS).",
+        "description": "Telefony z aplikacji HA Companion oraz konfiguracja powiadomien push.",
         "data": {
           "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
-          "notify_services": "Serwisy notify - oddzielone przecinkami (np. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
-          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
-          "tts_message": "Tekst TTS (puste = TTS wylaczone)",
-          "tts_service": "Serwis TTS (np. tts.google_translate_say lub tts.cloud_say)",
-          "tts_targets": "Media playery dla TTS (mozna wybrac kilka)"
+          "notify_service": "Serwis notify (np. notify.mobile_app_pixel_8)",
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej"
         }
       }
     }

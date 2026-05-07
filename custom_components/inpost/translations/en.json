@@ -21,11 +21,8 @@
         "data": {
           "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
-          "notify_services": "Notify services - comma separated (e.g. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
-          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
-          "tts_message": "TTS text (empty = TTS disabled)",
-          "tts_service": "TTS service (e.g. tts.google_translate_say or tts.cloud_say)",
-          "tts_targets": "Media players for TTS (you can pick several)"
+          "notify_service": "Notify service (e.g. notify.mobile_app_pixel_8)",
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this"
         }
       },
       "reauth_confirm": {
@@ -49,15 +46,12 @@
     "step": {
       "init": {
         "title": "InPost - options",
-        "description": "Phones (from HA Companion) and notification settings (push + TTS).",
+        "description": "Phones (from HA Companion) and push notification settings.",
         "data": {
           "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
-          "notify_services": "Notify services - comma separated (e.g. notify.mobile_app_pixel_8, notify.mobile_app_iphone)",
-          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
-          "tts_message": "TTS text (empty = TTS disabled)",
-          "tts_service": "TTS service (e.g. tts.google_translate_say or tts.cloud_say)",
-          "tts_targets": "Media players for TTS (you can pick several)"
+          "notify_service": "Notify service (e.g. notify.mobile_app_pixel_8)",
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this"
         }
       }
     }

@@ -1,4 +1,4 @@
-"""Sensory: jeden per paczka 'do odbioru' + sensor zbiorczy + sensor 'najblizsza paczka [m]'."""
+"""Sensory: jeden per paczka (kazdy status) + sensor zbiorczy + sensor 'najblizsza paczka [m]'."""
 from __future__ import annotations
 
 import logging
@@ -21,7 +21,10 @@ from .const import (
     CONF_DEVICE_TRACKER,
     CONF_DEVICE_TRACKERS,
     CONF_PHONE,
+    DEFAULT_PARCEL_ICON,
     DOMAIN,
+    STATUS_ICONS,
+    STATUS_LABELS_PL,
 )
 from .coordinator import InpostCoordinator
 
@@ -47,8 +50,8 @@ async def async_setup_entry(
         InpostNearestSensor(coord, entry),
     ])
 
-    # dynamiczne: synchronizujemy entity_registry z aktywnymi paczkami z grace period.
-    # Klucz: surowy shipmentNumber (bez slug, zeby uniknac kolizji).
+    # dynamiczne: synchronizujemy entity_registry ze WSZYSTKIMI paczkami z API (kazdy status).
+    # Encja zyje od pojawienia sie paczki w API az do AUTOREMOVE_GRACE_TICKS pustych odczytow po znikniieciu.
     parcel_uid_prefix = f"{entry.entry_id}_parcel_"
     miss_count: dict[str, int] = {}  # sn -> ile kolejnych odczytow API NIE zwrocilo paczki
 
@@ -57,7 +60,7 @@ async def async_setup_entry(
         ent_reg = er.async_get(hass)
 
         active: set[str] = set()
-        for p in coord.pickup_parcels:
+        for p in coord.all_parcels:
             sn = p.get("shipmentNumber") or p.get("id")
             if sn:
                 active.add(str(sn))
@@ -92,7 +95,7 @@ async def async_setup_entry(
             unique_id = parcel_uid_prefix + sn
             entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
             if entity_id:
-                _LOGGER.info("InPost: usuwam encje %s (paczka odebrana/wycofana)", entity_id)
+                _LOGGER.info("InPost: usuwam encje %s (paczka zniknela z API)", entity_id)
                 ent_reg.async_remove(entity_id)
             miss_count.pop(sn, None)
 
@@ -143,6 +146,7 @@ class InpostCountSensor(InpostBase):
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "parcels": [p.get("shipmentNumber") for p in self.coordinator.pickup_parcels],
+            "all_tracked": len(self.coordinator.all_parcels),
         }
 
 
@@ -258,9 +262,7 @@ class InpostNearestSensor(InpostBase):
 
 
 class InpostParcelSensor(InpostBase):
-    """Pojedyncza paczka 'do odbioru'."""
-
-    _attr_icon = "mdi:package-variant-closed"
+    """Pojedyncza paczka - state odzwierciedla pelny cykl zycia (utworzona, w doreczeniu, doreczona, ...)."""
 
     def __init__(self, coord: InpostCoordinator, entry: ConfigEntry, shipment_number: str):
         super().__init__(coord, entry)
@@ -272,7 +274,7 @@ class InpostParcelSensor(InpostBase):
         self._attr_name = f"Paczka {self._sn}"
 
     def _data(self) -> dict | None:
-        for p in self.coordinator.pickup_parcels:
+        for p in self.coordinator.all_parcels:
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
                 return p
         return None
@@ -282,16 +284,21 @@ class InpostParcelSensor(InpostBase):
         return self._data() is not None
 
     @property
+    def icon(self) -> str:
+        d = self._data()
+        if not d:
+            return DEFAULT_PARCEL_ICON
+        return STATUS_ICONS.get(d.get("status") or "", DEFAULT_PARCEL_ICON)
+
+    @property
     def native_value(self) -> str | None:
         d = self._data()
         if not d:
             return None
-        return {
-            "READY_TO_PICKUP": "Gotowa do odbioru",
-            "READY_TO_PICKUP_FROM_POK": "Gotowa do odbioru w PaczkoPunkcie",
-            "READY_TO_PICKUP_FROM_BRANCH": "Gotowa do odbioru z oddzialu",
-            "PICKUP_REMINDER_SENT": "Przypomnienie o odbiorze",
-        }.get(d.get("status"), d.get("status"))
+        status = d.get("status")
+        if not status:
+            return None
+        return STATUS_LABELS_PL.get(status, status)
 
     @property
     def entity_picture(self) -> str | None:
@@ -310,6 +317,7 @@ class InpostParcelSensor(InpostBase):
         addr = pp.get("addressDetails") or {}
         return {
             "shipment_number": d.get("shipmentNumber"),
+            "status_raw": d.get("status"),
             "sender": (d.get("sender") or {}).get("name"),
             "pickup_point": pp.get("name"),
             "address": " ".join(x for x in [

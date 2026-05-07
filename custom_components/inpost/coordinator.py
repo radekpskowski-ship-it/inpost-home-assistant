@@ -67,5 +67,10 @@ class InpostCoordinator(DataUpdateCoordinator[list[dict]]):
             raise UpdateFailed(f"InPost API error: {err}") from err
 
     @property
+    def all_parcels(self) -> list[dict]:
+        """Wszystkie aktywne paczki widoczne w API (kazdy status, nie tylko 'do odbioru')."""
+        return list(self.data or [])
+
+    @property
     def pickup_parcels(self) -> list[dict]:
         return [p for p in (self.data or []) if p.get("status") in PICKUP_STATUSES]

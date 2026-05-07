@@ -11,9 +11,9 @@ Home Assistant custom integration for **InPost parcel lockers (paczkomaty)** —
 - Sensors:
   - **`sensor.paczki_do_odbioru`** — number of parcels ready for pickup. Attribute: `parcels` (list of shipment numbers).
   - **`sensor.najblizsza_paczka_dystans`** — distance in metres from a chosen `device_tracker` to the nearest locker holding a parcel. Attributes: nearest pickup point name + shipment number.
-  - **`sensor.paczka_<shipmentNumber>`** — one entity per pickup-ready parcel. Attributes include `open_code`, `qr_code`, address, opening hours, expiry date, 24/7 flag, easy-access zone.
-- Per-parcel sensors are added/removed dynamically as parcels arrive and are picked up (with a 2-tick grace period to absorb transient API glitches).
-- Optional **push notifications** when a parcel comes within a configurable distance of your phone — per-parcel cooldown, persistent across HA restarts.
+  - **`sensor.paczka_<shipmentNumber>`** — one entity per parcel covering the **full lifecycle**. State is the current stage in Polish (`Utworzona`, `W doreczeniu`, `Gotowa do odbioru`, `Doreczona`, `Zwrocona do nadawcy`, …); icon switches with the state. Attributes include `status_raw`, `open_code`, `qr_code`, address, opening hours, expiry date, 24/7 flag, easy-access zone.
+- Per-parcel sensors are added/removed dynamically as parcels appear in and disappear from the InPost API (with a 2-tick grace period to absorb transient API glitches).
+- Optional **push notifications** (single notify service) fire when a pickup-ready parcel comes within a configurable distance of any of your phones — per-parcel cooldown, persistent across HA restarts.
 
 ## Installation
 
@@ -50,10 +50,10 @@ Click **Configure** on the integration card:
 
 | Option | Default | Notes |
 |---|---|---|
-| **Phone (device_tracker)** | (empty) | List filtered to `mobile_app` integration — only phones running Home Assistant Companion show up. |
-| **Notification threshold (m)** | `500` | Notify when a parcel is within this distance. `0` disables notifications. |
+| **Phones (device_trackers)** | (empty) | Multi-select filtered to `mobile_app` integration — only phones running Home Assistant Companion show up. Distance is taken to whichever phone is closest. |
+| **Notification threshold (m)** | `500` | Notify when a pickup-ready parcel is within this distance. `0` disables notifications. |
 | **Notify service** | (empty) | e.g. `notify.mobile_app_<your_phone>`. Must exist in Home Assistant. |
-| **Per-parcel cooldown (min)** | `60` | Same parcel won't notify again for this many minutes after a successful notify. |
+| **Per-parcel cooldown (h)** | `1` | Same parcel won't notify again for this many hours after a successful notify. |
 
 Cooldowns are persisted with `helpers.storage.Store`, so a HA restart will not re-trigger notifications for parcels you have already been pinged about.
 
@@ -64,7 +64,7 @@ Add the integration multiple times — once per phone number. Each entry gets it
 ## Limitations / known caveats
 
 - The integration polls `/v3/parcels/tracked` every **15 minutes**. Push from InPost is not supported (no public webhook).
-- Only parcels with status `READY_TO_PICKUP*` and `PICKUP_REMINDER_SENT` are surfaced; parcels in transit are ignored.
+- Per-parcel sensors cover the full lifecycle (created → in transit → ready for pickup → delivered/returned). The "Paczki do odbioru" count and distance/notify logic still operate only on pickup-ready statuses (`READY_TO_PICKUP*`, `PICKUP_REMINDER_SENT`).
 - Lockers without `pickUpPoint.location` (some indoor / branch pickups) are counted but excluded from distance calculations.
 - The notification message contains the parcel `open_code` — if you route notifications to a service that logs to disk or a third party, treat that as sensitive.
 

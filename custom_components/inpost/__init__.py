@@ -1,4 +1,4 @@
-"""Custom integration: InPost (paczki gotowe do odbioru)."""
+"""Custom integration: InPost (paczki, status pelnego cyklu zycia)."""
 from __future__ import annotations
 
 import logging
@@ -19,10 +19,6 @@ from .const import (
     CONF_NOTIFY_COOLDOWN_MIN,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
-    CONF_NOTIFY_SERVICES,
-    CONF_TTS_MESSAGE,
-    CONF_TTS_SERVICE,
-    CONF_TTS_TARGETS,
     DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_COOLDOWN_MIN,
     DEFAULT_NOTIFY_DISTANCE_M,
@@ -55,15 +51,19 @@ def _resolve_trackers(opts: dict[str, Any]) -> list[str]:
     return [legacy] if legacy else []
 
 
-def _resolve_notify_services(opts: dict[str, Any]) -> list[str]:
-    """Lista 'notify.X' - z nowego CONF_NOTIFY_SERVICES (lista) lub starego CONF_NOTIFY_SERVICE (string)."""
-    services = opts.get(CONF_NOTIFY_SERVICES)
-    if isinstance(services, list) and services:
-        return [s.strip() for s in services if s and "." in s]
-    if isinstance(services, str) and services.strip():
-        return [s.strip() for s in services.split(",") if s.strip() and "." in s]
-    legacy = (opts.get(CONF_NOTIFY_SERVICE) or "").strip()
-    return [legacy] if legacy and "." in legacy else []
+def _resolve_notify_service(opts: dict[str, Any]) -> str:
+    """Pojedynczy serwis 'notify.X'. Wspiera te tez stare wpisy ktore mialy liste/CSV."""
+    val = opts.get(CONF_NOTIFY_SERVICE)
+    if isinstance(val, list):
+        for s in val:
+            if isinstance(s, str) and "." in s:
+                return s.strip()
+        return ""
+    if isinstance(val, str) and val.strip():
+        # legacy CSV: bierzemy pierwszy wpis
+        first = val.split(",", 1)[0].strip()
+        return first if "." in first else ""
+    return ""
 
 
 def _resolve_cooldown(opts: dict[str, Any]) -> timedelta:
@@ -82,10 +82,10 @@ def _resolve_cooldown(opts: dict[str, Any]) -> timedelta:
 
 
 class InpostNotifier:
-    """Wystrzela powiadomienia gdy paczka znajdzie sie blizej progu (per shipmentNumber, z cooldownem).
+    """Wystrzela powiadomienie push gdy paczka 'gotowa do odbioru' znajdzie sie blizej progu.
 
-    Cooldowny persistowane przez Store - przezywaja restart HA.
-    Wspiera wiele targetow notify oraz opcjonalny TTS na wybranym media_player.
+    Cooldowny per shipmentNumber persistowane przez Store (przezywaja restart HA).
+    Tylko jeden serwis notify - prosto i przewidywalnie.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, coord: InpostCoordinator) -> None:
@@ -121,19 +121,9 @@ class InpostNotifier:
         if threshold <= 0:
             return
 
-        notify_services = _resolve_notify_services(opts)
-        tts_message = (opts.get(CONF_TTS_MESSAGE) or "").strip()
-        tts_service = (opts.get(CONF_TTS_SERVICE) or "").strip()
-        tts_targets = opts.get(CONF_TTS_TARGETS) or []
-        tts_enabled = (
-            bool(tts_message)
-            and "." in tts_service
-            and isinstance(tts_targets, list)
-            and bool(tts_targets)
-        )
-
-        if not notify_services and not tts_enabled:
-            return  # nic do strzelania
+        notify_service = _resolve_notify_service(opts)
+        if not notify_service:
+            return
 
         trackers = _resolve_trackers(opts)
         if not trackers:
@@ -199,7 +189,7 @@ class InpostNotifier:
 
             _LOGGER.debug("InPost: notify candidate sn=%s d=%dm", sn, round(min_d))
             self.hass.async_create_task(
-                self._fire_all(notify_services, tts_message, tts_service, tts_targets, message, sn),
+                self._fire(notify_service, message, sn),
                 name=f"inpost_notify_{sn}",
             )
 
@@ -213,57 +203,26 @@ class InpostNotifier:
         if dirty:
             self.hass.async_create_task(self._async_save(), name="inpost_notify_save")
 
-    async def _fire_all(
-        self,
-        notify_services: list[str],
-        tts_message: str,
-        tts_service: str,
-        tts_targets: list[str],
-        message: str,
-        sn: str,
-    ) -> None:
-        any_success = False
+    async def _fire(self, notify_service: str, message: str, sn: str) -> None:
+        if "." not in notify_service:
+            return
+        domain, service = notify_service.split(".", 1)
+        if not self.hass.services.has_service(domain, service):
+            _LOGGER.warning("InPost: serwis %s nie jest zarejestrowany - pomijam", notify_service)
+            return
+        try:
+            await self.hass.services.async_call(
+                domain, service,
+                {"title": "InPost - paczkomat blisko", "message": message},
+                blocking=True,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("InPost: notify %s zawiodl - cooldown NIE ustawiony dla %s",
+                              notify_service, sn)
+            return
 
-        # 1) klasyczne notify (push)
-        for svc in notify_services:
-            if "." not in svc:
-                continue
-            domain, service = svc.split(".", 1)
-            if not self.hass.services.has_service(domain, service):
-                _LOGGER.warning("InPost: serwis %s nie jest zarejestrowany - pomijam", svc)
-                continue
-            try:
-                await self.hass.services.async_call(
-                    domain, service,
-                    {"title": "InPost - paczkomat blisko", "message": message},
-                    blocking=True,
-                )
-                any_success = True
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("InPost: notify %s zawiodl", svc)
-
-        # 2) TTS na wybranych media_player
-        if tts_message and tts_service and tts_targets and "." in tts_service:
-            td, ts = tts_service.split(".", 1)
-            if self.hass.services.has_service(td, ts):
-                for media in tts_targets:
-                    try:
-                        await self.hass.services.async_call(
-                            td, ts,
-                            {"entity_id": media, "message": tts_message},
-                            blocking=True,
-                        )
-                        any_success = True
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.exception("InPost: TTS %s -> %s zawiodl", tts_service, media)
-            else:
-                _LOGGER.warning("InPost: serwis TTS %s nie jest zarejestrowany", tts_service)
-
-        if any_success:
-            self._last_notified[sn] = dt_util.utcnow().isoformat()
-            await self._async_save()
-        else:
-            _LOGGER.warning("InPost: zaden cel notify/TTS nie zadzialal - cooldown NIE ustawiony dla %s", sn)
+        self._last_notified[sn] = dt_util.utcnow().isoformat()
+        await self._async_save()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

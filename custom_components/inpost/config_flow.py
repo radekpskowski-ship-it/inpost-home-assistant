@@ -19,18 +19,12 @@ from .const import (
     CONF_NOTIFY_COOLDOWN_HOURS,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
-    CONF_NOTIFY_SERVICES,
     CONF_PHONE,
     CONF_REFRESH_TOKEN,
-    CONF_TTS_MESSAGE,
-    CONF_TTS_SERVICE,
-    CONF_TTS_TARGETS,
     DEFAULT_DEVICE_TRACKERS,
     DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_DISTANCE_M,
-    DEFAULT_NOTIFY_SERVICES,
-    DEFAULT_TTS_SERVICE,
-    DEFAULT_TTS_TARGETS,
+    DEFAULT_NOTIFY_SERVICE,
     DOMAIN,
 )
 
@@ -49,15 +43,19 @@ def _resolve_default_trackers(current: dict[str, Any]) -> list[str]:
     return [legacy] if legacy else list(DEFAULT_DEVICE_TRACKERS)
 
 
-def _resolve_default_services(current: dict[str, Any]) -> str:
-    """Backwards compat dla pojedynczego notify_service. Zwraca string oddzielony przecinkami."""
-    val = current.get(CONF_NOTIFY_SERVICES)
+def _resolve_default_notify_service(current: dict[str, Any]) -> str:
+    """Backwards compat: stara wartosc moze byc lista (multi-notify) lub stringiem CSV."""
+    val = current.get(CONF_NOTIFY_SERVICE)
     if isinstance(val, list):
-        return ", ".join(s for s in val if s)
-    if isinstance(val, str) and val:
-        return val
-    legacy = (current.get(CONF_NOTIFY_SERVICE) or "").strip()
-    return legacy
+        for s in val:
+            if isinstance(s, str) and "." in s:
+                return s.strip()
+        return DEFAULT_NOTIFY_SERVICE
+    if isinstance(val, str):
+        first = val.split(",", 1)[0].strip()
+        if "." in first:
+            return first
+    return DEFAULT_NOTIFY_SERVICE
 
 
 def _options_schema(current: dict[str, Any]) -> vol.Schema:
@@ -87,8 +85,8 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                 )
             ),
             vol.Optional(
-                CONF_NOTIFY_SERVICES,
-                default=_resolve_default_services(current),
+                CONF_NOTIFY_SERVICE,
+                default=_resolve_default_notify_service(current),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=False)
             ),
@@ -101,31 +99,12 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                     unit_of_measurement="h", mode=selector.NumberSelectorMode.BOX,
                 )
             ),
-            vol.Optional(
-                CONF_TTS_MESSAGE,
-                default=current.get(CONF_TTS_MESSAGE, ""),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True)
-            ),
-            vol.Optional(
-                CONF_TTS_SERVICE,
-                default=current.get(CONF_TTS_SERVICE, DEFAULT_TTS_SERVICE),
-            ): str,
-            vol.Optional(
-                CONF_TTS_TARGETS,
-                default=current.get(CONF_TTS_TARGETS, DEFAULT_TTS_TARGETS),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="media_player",
-                    multiple=True,
-                )
-            ),
         }
     )
 
 
 def _normalize_options(d: dict[str, Any]) -> dict[str, Any]:
-    """NumberSelector zwraca float; trzymamy intery dla zwartego storage. Plus parsing list."""
+    """NumberSelector zwraca float; trzymamy intery dla zwartego storage. Plus parsing typu."""
     if CONF_NOTIFY_COOLDOWN_HOURS in d and d[CONF_NOTIFY_COOLDOWN_HOURS] is not None:
         try:
             d[CONF_NOTIFY_COOLDOWN_HOURS] = int(d[CONF_NOTIFY_COOLDOWN_HOURS])
@@ -136,23 +115,20 @@ def _normalize_options(d: dict[str, Any]) -> dict[str, Any]:
             d[CONF_NOTIFY_DISTANCE_M] = int(d[CONF_NOTIFY_DISTANCE_M])
         except (TypeError, ValueError):
             pass
-    # NOTIFY_SERVICES: TextSelector zwraca str z przecinkami -> rozbij na liste
-    if CONF_NOTIFY_SERVICES in d:
-        v = d[CONF_NOTIFY_SERVICES]
+    # NOTIFY_SERVICE: walidacja - musi zawierac "."
+    if CONF_NOTIFY_SERVICE in d:
+        v = d[CONF_NOTIFY_SERVICE]
         if isinstance(v, str):
-            parts = [p.strip() for p in v.split(",") if p.strip()]
-            d[CONF_NOTIFY_SERVICES] = parts
-        elif v is None:
-            d.pop(CONF_NOTIFY_SERVICES, None)
-    # DEVICE_TRACKERS: EntitySelector(multiple=True) zwraca liste - zostawiamy
-    # TTS_TARGETS: ditto
-    # usun puste stringi i pust listy (default behavior dla pominietych)
-    for k in (CONF_DEVICE_TRACKERS, CONF_NOTIFY_SERVICES, CONF_TTS_TARGETS):
-        if k in d and not d[k]:
-            d.pop(k, None)
-    for k in (CONF_TTS_MESSAGE, CONF_TTS_SERVICE):
-        if k in d and (d[k] is None or (isinstance(d[k], str) and not d[k].strip())):
-            d.pop(k, None)
+            v = v.strip()
+            if not v or "." not in v:
+                d.pop(CONF_NOTIFY_SERVICE, None)
+            else:
+                d[CONF_NOTIFY_SERVICE] = v
+        elif not v:
+            d.pop(CONF_NOTIFY_SERVICE, None)
+    # DEVICE_TRACKERS: EntitySelector(multiple=True) zwraca liste - usun jesli pusta
+    if CONF_DEVICE_TRACKERS in d and not d[CONF_DEVICE_TRACKERS]:
+        d.pop(CONF_DEVICE_TRACKERS, None)
     return d
 
 
@@ -279,7 +255,7 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class InpostOptionsFlow(config_entries.OptionsFlow):
-    """Options flow: telefon do liczenia dystansu, prog powiadomien, serwis notify, cooldown."""
+    """Options flow: telefony do liczenia dystansu, prog powiadomien, serwis notify, cooldown."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry

@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-07
+
+### Added
+- **Per-parcel sensor for the entire lifecycle.** Each parcel from the API now gets its own `sensor.paczka_<shipmentNumber>` regardless of status. State reflects the current stage in Polish: `Utworzona`, `W doreczeniu`, `Gotowa do odbioru`, `Doreczona`, `Zwrocona do nadawcy`, etc.
+- **Status-aware icons.** Icon switches automatically with the parcel state (`mdi:truck-delivery` while in transit, `mdi:package-variant-closed-check` when ready, `mdi:package-check` when delivered, etc.).
+- **`status_raw`** attribute exposes the original API status for templates/automations.
+- **`all_tracked`** attribute on the count sensor reports total tracked parcels (any status).
+
+### Removed
+- **Multiple notify services.** `notify_services` (CSV / list) replaced by single `notify_service` field. Existing list/CSV values from older versions still work as fallback (first valid entry is used).
+- **TTS support.** `tts_message`, `tts_service`, `tts_targets` removed entirely. Use a HA automation hooked to the parcel sensor state if you still want TTS.
+
+### Changed
+- Parcel sensor lifecycle now driven by `coordinator.all_parcels` instead of `pickup_parcels`. Distance/notify logic still operates only on pickup-ready parcels (`PICKUP_STATUSES`).
+- `manifest.json` keys re-ordered to satisfy hassfest (domain, name, then alphabetical).
+- CI: `actions/checkout@v4` → `actions/checkout@v5` (Node 20 deprecated by GitHub from 2026-06-02).
+
+### Fixed
+- HACS brand assets (`brand/icon.png`, `brand/icon@2x.png`, `brand/logo*.png`) added so the HACS `brands` validation no longer fails.
+- hassfest manifest key-order failure resolved.
+
 ## [0.4.0] - 2026-05-03
 
 ### Added
