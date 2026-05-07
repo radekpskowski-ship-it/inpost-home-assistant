@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-07
+
+### Fixed
+- Icons now visible on parcel and paczkomat entities. `entity_picture` (which was returning `pickUpPoint.imageUrl`) was suppressing the status-based MDI icons in the HA frontend. Removed `entity_picture` from both `InpostParcelSensor` and `InpostPickupPointSensor` — `STATUS_ICONS` (mdi:truck-delivery, mdi:package-variant-closed-check, mdi:bell-ring, etc.) now shows correctly.
+
 ## [0.10.0] - 2026-05-07
 
 ### Hybrid entity model: per-parcel + per-paczkomat

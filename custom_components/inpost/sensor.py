@@ -378,13 +378,6 @@ class InpostParcelSensor(InpostBase):
         return STATUS_LABELS_PL.get(status, status)
 
     @property
-    def entity_picture(self) -> str | None:
-        d = self._data()
-        if not d:
-            return None
-        return (d.get("pickUpPoint") or {}).get("imageUrl")
-
-    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         d = self._data()
         if not d:
@@ -470,13 +463,6 @@ class InpostPickupPointSensor(InpostBase):
     @property
     def native_value(self) -> int:
         return len(self._parcels())
-
-    @property
-    def entity_picture(self) -> str | None:
-        parcels = self._parcels()
-        if not parcels:
-            return None
-        return (parcels[0].get("pickUpPoint") or {}).get("imageUrl")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
