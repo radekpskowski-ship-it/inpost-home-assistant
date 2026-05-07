@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-05-07
+
+### Changed
+- Parcel friendly name now uses **sender name** (e.g. `VINTED`, `Amazon Polska`) instead of `Paczka <shipmentNumber>`. Long sender strings (>40 chars, e.g. `Seller using Cainiao logistics services`) are truncated. Duplicates are fine — HA disambiguates via entity_id (still shipment-based). Fallback to `Paczka <shipmentNumber>` if API returns no sender.
+- `entity_id` and `unique_id` unchanged — automations referencing `sensor.inpost_paczka_<sn>` keep working.
+
 ## [0.6.1] - 2026-05-07
 
 ### Changed

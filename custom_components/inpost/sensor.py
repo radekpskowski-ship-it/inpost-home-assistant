@@ -273,11 +273,27 @@ class InpostParcelSensor(InpostBase):
     def __init__(self, coord: InpostCoordinator, entry: ConfigEntry, shipment_number: str):
         super().__init__(coord, entry)
         self._sn = str(shipment_number)
-        # unique_id: SUROWY shipmentNumber (chroni przed kolizjami slug)
+        # unique_id: SUROWY shipmentNumber (chroni przed kolizjami slug, NIE zmieniac
+        # gdy bedziemy modyfikowac display name - inaczej HA zgubi historie encji)
         self._attr_unique_id = f"{entry.entry_id}_parcel_{self._sn}"
-        # entity_id sufix: alfanumeryczny (HA tak czy siak by to slugifikowal)
+        # entity_id sufix: alfanumeryczny - oparty o shipmentNumber, stabilny dla automatyzacji
         self._attr_suggested_object_id = f"paczka_{_slug_for_entity_id(self._sn)}"
-        self._attr_name = f"Paczka {self._sn}"
+        # _attr_name NIE jest ustawiany - friendly name zwracany dynamicznie z `name`
+        # zeby zlapac sender (ktory bywa znany dopiero po pierwszym refresh).
+
+    @property
+    def name(self) -> str:
+        """Friendly name = sama nazwa nadawcy. Powtorki sa OK - HA rozroznia encje
+        przez entity_id (slug shipmentNumber). Fallback: 'Paczka <shipmentNumber>'."""
+        d = self._data()
+        sender = ((d.get("sender") or {}).get("name") if d else None) or ""
+        sender = sender.strip()
+        if sender:
+            # InPost zwraca czasem dlugie opisowe nazwy ("Seller using Cainiao logistics services")
+            if len(sender) > 40:
+                sender = sender[:40].rstrip() + "…"
+            return sender
+        return f"Paczka {self._sn}"
 
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
