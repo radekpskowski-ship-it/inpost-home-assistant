@@ -162,21 +162,22 @@ async def async_setup_entry(
 
     parcel_uid_prefix = f"{entry.entry_id}_parcel_"
     pp_uid_prefix = f"{entry.entry_id}_pickup_point_"
-    qr_uid_prefix = f"{entry.entry_id}_pickup_qr_"
+    # Stary prefix `_pickup_qr_` (sensor InpostPickupQRSensor z 0.12.x) -
+    # encje takiego typu juz nie istnieja, ale czyscimy zombie po update.
+    legacy_qr_uid_prefix = f"{entry.entry_id}_pickup_qr_"
     parcel_miss: dict[str, int] = {}  # sn -> ile pustych odczytow
     pp_miss: dict[str, int] = {}      # pp_name -> ile pustych odczytow
-    qr_miss: dict[str, int] = {}      # sn -> dla qr-tile encji
 
     # STARTUP CLEANUP: usuwamy WSZYSTKIE dynamiczne encje (per-paczka + per-paczkomat
-    # + per-qr-tile) z poprzedniej sesji. _refresh ponizej stworzy je od nowa.
-    # Eliminuje zombie po migracjach / mockach / zmianach struktury - czysty start.
+    # + stary qr-tile sensor jesli istnial) z poprzedniej sesji.
+    # _refresh ponizej stworzy je od nowa. Eliminuje zombie po migracjach / mockach.
     ent_reg_init = er.async_get(hass)
     cleaned = 0
     for ent in list(er.async_entries_for_config_entry(ent_reg_init, entry.entry_id)):
         uid = ent.unique_id or ""
         if (uid.startswith(parcel_uid_prefix)
                 or uid.startswith(pp_uid_prefix)
-                or uid.startswith(qr_uid_prefix)):
+                or uid.startswith(legacy_qr_uid_prefix)):
             _LOGGER.info("InPost startup cleanup: usuwam %s", ent.entity_id)
             ent_reg_init.async_remove(ent.entity_id)
             cleaned += 1
@@ -262,41 +263,8 @@ async def async_setup_entry(
                 ent_reg.async_remove(entity_id)
             pp_miss.pop(pp_name, None)
 
-        # ============ PER-QR-TILE (paczka w paczkomacie z openCode) ============
-        # Dedykowana encja do dashboardu: name=adres, entity_picture=QR, state=openCode.
-        active_qrs: set[str] = set()
-        for p in coord.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            if not p.get("openCode"):
-                continue  # bez kodu QR nie ma sensu
-            sn = p.get("shipmentNumber") or p.get("id")
-            if sn:
-                active_qrs.add(str(sn))
-
-        existing_qrs: set[str] = set()
-        for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
-            uid = ent.unique_id or ""
-            if uid.startswith(qr_uid_prefix):
-                existing_qrs.add(uid[len(qr_uid_prefix):])
-
-        for sn in active_qrs - existing_qrs:
-            new_entities.append(InpostPickupQRSensor(coord, entry, sn))
-        for sn in active_qrs:
-            qr_miss.pop(sn, None)
-        for sn in existing_qrs - active_qrs:
-            qr_miss[sn] = qr_miss.get(sn, 0) + 1
-            if qr_miss[sn] < AUTOREMOVE_GRACE_TICKS:
-                _LOGGER.debug(
-                    "InPost: qr-tile %s nieobecny (%d/%d) - czekam",
-                    sn, qr_miss[sn], AUTOREMOVE_GRACE_TICKS,
-                )
-                continue
-            entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, qr_uid_prefix + sn)
-            if entity_id:
-                _LOGGER.info("InPost: usuwam qr-tile %s", entity_id)
-                ent_reg.async_remove(entity_id)
-            qr_miss.pop(sn, None)
+        # QR codes sa teraz wystawiane jako image entities (image.py).
+        # Stary InpostPickupQRSensor (sensor.inpost_qr_paczka_<sn>) usuniety.
 
         if new_entities:
             async_add_entities(new_entities)
@@ -639,120 +607,3 @@ class InpostPickupPointSensor(InpostBase):
             "parcels": parcel_list,
         }
 
-
-class InpostPickupQRSensor(InpostBase):
-    """Per-paczka tile do dashboardu: name = adres paczkomatu, entity_picture = QR.
-
-    Tworzona TYLKO gdy paczka w PICKUP_STATUSES + ma openCode. State = openCode (PIN).
-    QR PNG generowany lokalnie z openCode, zapis w /config/www/inpost/<sn>.png,
-    URL /local/inpost/<sn>.png. Po odbiorze paczki encja znika (grace period),
-    PNG kasowany.
-    """
-
-    _attr_icon = "mdi:qrcode"
-
-    def __init__(self, coord: InpostCoordinator, entry: ConfigEntry, shipment_number: str):
-        super().__init__(coord, entry)
-        self._sn = str(shipment_number)
-        self._attr_unique_id = f"{entry.entry_id}_pickup_qr_{self._sn}"
-        self._attr_suggested_object_id = f"qr_paczka_{_slug_for_entity_id(self._sn)}"
-        # cache: openCode dla ktorego juz wygenerowany QR PNG
-        self._qr_for_open_code: str | None = None
-
-    def _data(self) -> dict | None:
-        # Tylko paczki w paczkomacie (PICKUP_STATUSES) - encja nie istnieje gdy paczka
-        # w transporcie, terminalna albo z ignorowanego nadawcy.
-        for p in self.coordinator.pickup_parcels:
-            if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
-                if is_sender_ignored((p.get("sender") or {}).get("name")):
-                    return None
-                if not p.get("openCode"):
-                    return None
-                return p
-        return None
-
-    @property
-    def available(self) -> bool:
-        return self._data() is not None
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        await self._async_sync_qr()
-
-    async def async_will_remove_from_hass(self) -> None:
-        # uprzatamy plik PNG przy usuwaniu encji z registry
-        await self.hass.async_add_executor_job(
-            _delete_qr_png, _qr_path_for(self.hass, self._sn)
-        )
-        await super().async_will_remove_from_hass()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        # przy kazdym refreshu - synchronizuj QR PNG
-        self.hass.async_create_task(self._async_sync_qr())
-        super()._handle_coordinator_update()
-
-    async def _async_sync_qr(self) -> None:
-        d = self._data()
-        path = _qr_path_for(self.hass, self._sn)
-        open_code = (d or {}).get("openCode") if d else None
-        if open_code:
-            if self._qr_for_open_code == open_code and os.path.exists(path):
-                return
-            try:
-                await self.hass.async_add_executor_job(
-                    _generate_qr_png, open_code, path
-                )
-                self._qr_for_open_code = open_code
-                _LOGGER.debug("InPost: QR-tile - wygenerowany QR dla %s", self._sn)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception("InPost: QR-tile - blad generacji QR dla %s", self._sn)
-        else:
-            if self._qr_for_open_code is not None or os.path.exists(path):
-                await self.hass.async_add_executor_job(_delete_qr_png, path)
-                self._qr_for_open_code = None
-
-    @property
-    def name(self) -> str:
-        """Friendly name = adres paczkomatu (ulica numer, miasto)."""
-        d = self._data()
-        if not d:
-            return f"QR Paczka {self._sn}"
-        addr = (d.get("pickUpPoint") or {}).get("addressDetails") or {}
-        formatted = _format_pp_address(addr, with_postcode=False)
-        return formatted or f"QR Paczka {self._sn}"
-
-    @property
-    def native_value(self) -> str | None:
-        d = self._data()
-        if not d:
-            return None
-        return d.get("openCode")  # state = PIN do paczkomatu
-
-    @property
-    def entity_picture(self) -> str | None:
-        if self._qr_for_open_code:
-            return _qr_url_for(self._sn)
-        return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        d = self._data()
-        if not d:
-            return {}
-        pp = d.get("pickUpPoint") or {}
-        addr = pp.get("addressDetails") or {}
-        raw_sender = (d.get("sender") or {}).get("name")
-        return {
-            "shipment_number": d.get("shipmentNumber"),
-            "sender": canonicalize_sender(raw_sender),
-            "open_code": d.get("openCode"),
-            "qr_image_url": _qr_url_for(self._sn) if self._qr_for_open_code else None,
-            "pickup_point": pp.get("name"),
-            "address": _format_pp_address(addr, with_postcode=True),
-            "city": addr.get("city"),
-            "street": addr.get("street"),
-            "post_code": addr.get("postCode"),
-            "expiry_date": d.get("expiryDate"),
-            "stored_date": d.get("storedDate"),
-        }

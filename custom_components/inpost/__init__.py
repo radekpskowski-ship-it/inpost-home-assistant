@@ -31,7 +31,7 @@ from .coordinator import InpostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

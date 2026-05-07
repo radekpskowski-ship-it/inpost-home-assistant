@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-05-07
+
+### ⚠ BREAKING — QR moved to `image` domain
+- **Removed**: `sensor.inpost_qr_paczka_<sn>` (QR-tile sensor from 0.12.1).
+- **Added**: `image.inpost_qr_paczka_<sn>` — Home Assistant native `image` entity (HA core 2023.7+). Same data, but proper domain for what it actually is. Matches the pattern UniFi Protect uses for camera previews — frontend has built-in **large render and tap-to-fullscreen** support without any Lovelace card hacks.
+- Lovelace usage:
+  ```yaml
+  type: picture-entity
+  entity: image.inpost_qr_paczka_520099999900000000000001
+  ```
+  → renders the QR at full card width; click → fullscreen modal.
+- The integration now exposes 2 platforms: `sensor` + `image` (was: just `sensor`).
+
+### Implementation notes
+- `image_url` returns `/local/inpost/<sn>.png` — HA frontend serves the static file directly (no extra event-loop traffic).
+- `image_last_updated` is bumped on every QR regeneration → frontend automatically refetches when openCode changes.
+- Startup cleanup also wipes orphaned `_pickup_qr_*` sensor entries from 0.12.x deployments.
+
+### Migration
+Lovelace cards using `sensor.inpost_qr_paczka_<sn>` need to be re-pointed to `image.inpost_qr_paczka_<sn>`. Open codes are still readable via `state_attr('image.inpost_qr_paczka_<sn>', 'open_code')`.
+
 ## [0.12.1] - 2026-05-07
 
 ### Changed (vs 0.12.0)
