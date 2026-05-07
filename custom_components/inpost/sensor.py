@@ -26,6 +26,7 @@ from .const import (
     STATUS_ICONS,
     STATUS_LABELS_PL,
     TERMINAL_STATUSES,
+    canonicalize_sender,
 )
 from .coordinator import InpostCoordinator
 
@@ -283,13 +284,17 @@ class InpostParcelSensor(InpostBase):
 
     @property
     def name(self) -> str:
-        """Friendly name = sama nazwa nadawcy. Powtorki sa OK - HA rozroznia encje
-        przez entity_id (slug shipmentNumber). Fallback: 'Paczka <shipmentNumber>'."""
+        """Friendly name = nadawca po normalizacji ze slownika SENDER_ALIASES.
+
+        Cainiao -> AliExpress, Amazon Polska -> Amazon itd. Powtorki sa OK -
+        HA rozroznia encje przez entity_id (slug shipmentNumber).
+        Fallback: 'Paczka <shipmentNumber>'.
+        """
         d = self._data()
-        sender = ((d.get("sender") or {}).get("name") if d else None) or ""
-        sender = sender.strip()
+        raw_sender = (d.get("sender") or {}).get("name") if d else None
+        sender = canonicalize_sender(raw_sender)
         if sender:
-            # InPost zwraca czasem dlugie opisowe nazwy ("Seller using Cainiao logistics services")
+            # passthrough nazwy moga byc dlugie - skroc dla UI
             if len(sender) > 40:
                 sender = sender[:40].rstrip() + "…"
             return sender
@@ -347,10 +352,12 @@ class InpostParcelSensor(InpostBase):
         if isinstance(refs, dict):
             refs = refs.get("value")
 
+        raw_sender = (d.get("sender") or {}).get("name")
         return {
             "shipment_number": d.get("shipmentNumber"),
             "status_raw": d.get("status"),
-            "sender": (d.get("sender") or {}).get("name"),
+            "sender": canonicalize_sender(raw_sender),
+            "sender_raw": raw_sender,
             "references": refs,
             "estimated_delivery_date": d.get("estimatedDeliveryDate"),
             "pickup_point": pp.get("name"),

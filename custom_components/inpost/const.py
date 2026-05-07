@@ -118,5 +118,82 @@ STATUS_ICONS: dict[str, str] = {
 
 DEFAULT_PARCEL_ICON = "mdi:package-variant-closed"
 
+# Mapping surowych nazw nadawcow z API InPost na czytelne, krotkie etykiety.
+# Lista kolejnosci - dopasowanie po pierwszym `pattern in raw_sender.lower()`,
+# wiec bardziej specyficzne wzorce stawiaj WYZEJ. Pattern jest lowercase'owany.
+# Niedopasowane nazwy przelatuja bez zmian (po opcjonalnym truncate w sensor.py).
+SENDER_ALIASES: list[tuple[str, str]] = [
+    # Marketplaces / e-commerce
+    ("cainiao", "AliExpress"),                  # "Seller using Cainiao logistics services"
+    ("aliexpress", "AliExpress"),
+    ("temu", "Temu"),
+    ("shein", "SHEIN"),
+    ("amazon", "Amazon"),
+    ("allegro", "Allegro"),                     # Allegro / Allegro Smart / Allegro Lokalnie
+    ("vinted", "Vinted"),
+    ("empik", "Empik"),
+    ("zalando", "Zalando"),
+    ("modivo", "Modivo"),
+    ("answear", "Answear"),
+    ("ebay", "eBay"),
+    ("etsy", "Etsy"),
+    # Elektronika / AGD
+    ("x-kom", "x-kom"),
+    ("morele", "Morele"),
+    ("media markt", "MediaMarkt"),
+    ("mediamarkt", "MediaMarkt"),
+    ("euro agd", "RTV Euro AGD"),
+    ("rtveuroagd", "RTV Euro AGD"),
+    ("rtv euro agd", "RTV Euro AGD"),
+    ("klinikaagd", "Klinika AGD"),
+    ("oleole", "OleOle"),
+    # Moda / obuwie
+    ("eobuwie", "eobuwie"),
+    ("ccc.eu", "CCC"),
+    ("4f.pl", "4F"),
+    ("sinsay", "Sinsay"),
+    ("reserved", "Reserved"),
+    ("h&m", "H&M"),
+    ("zara", "Zara"),
+    ("c&a", "C&A"),
+    # Drogeria / kosmetyki
+    ("notino", "Notino"),
+    ("hebe", "Hebe"),
+    ("rossmann", "Rossmann"),
+    ("douglas", "Douglas"),
+    ("sephora", "Sephora"),
+    # Dom / hobby
+    ("ikea", "IKEA"),
+    ("leroy", "Leroy Merlin"),
+    ("castorama", "Castorama"),
+    ("decathlon", "Decathlon"),
+    ("apart", "Apart"),
+    ("smyk", "Smyk"),
+    # Spozywka / inne
+    ("pyszne", "Pyszne.pl"),
+    ("biedronka", "Biedronka"),
+    ("auchan", "Auchan"),
+    # Curierzy / sami nadawcy
+    ("inpost", "InPost"),
+]
+
+
+def canonicalize_sender(raw_sender: str | None) -> str:
+    """Spaczowanie surowych nazw nadawcow z API na ladne, krotkie etykiety.
+
+    Zwraca canonical name jesli pattern z SENDER_ALIASES wystepuje w raw_sender
+    (case insensitive). W przeciwnym razie zwraca raw_sender (po strip).
+    """
+    if not raw_sender:
+        return ""
+    s = raw_sender.strip()
+    if not s:
+        return ""
+    s_low = s.lower()
+    for pattern, canonical in SENDER_ALIASES:
+        if pattern in s_low:
+            return canonical
+    return s
+
 API_BASE = "https://api-inmobile-pl.easypack24.net"
 USER_AGENT = "InPost-Mobile/3.27.2 (Android 14; SDK 34) okhttp/4.11.0"

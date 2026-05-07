@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-07
+
+### Added
+- **Sender alias dictionary** (`SENDER_ALIASES` in `const.py`). Normalizes the awkward names InPost returns into clean, recognizable shop labels:
+  - `Seller using Cainiao logistics services` → `AliExpress` (Cainiao = Alibaba's logistics arm, mostly AliExpress)
+  - `Amazon Polska` → `Amazon`
+  - `Allegro Smart` / `Allegro Lokalnie` → `Allegro`
+  - `KLINIKAAGD.PL` → `Klinika AGD`
+  - …plus ~40 common Polish e-commerce / drogeria / fashion brands (Vinted, Zalando, Empik, x-kom, Morele, RTV Euro AGD, Notino, Hebe, Rossmann, IKEA, Decathlon, Sinsay, Reserved, H&M, Temu, SHEIN, Apart, Smyk, etc.). See `const.py:SENDER_ALIASES` to extend.
+- New attribute `sender_raw` exposes the original (un-normalized) sender name from the API for templates that need it.
+
+### Changed
+- `sensor.sender` attribute now contains the canonical name (matching the friendly name). Use `sensor.sender_raw` for the original API value.
+
 ## [0.6.2] - 2026-05-07
 
 ### Changed
