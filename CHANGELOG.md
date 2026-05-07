@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-07
+
+### Added
+- **Ignored senders blocklist** (`IGNORED_SENDER_PATTERNS` in `const.py`). Parcels whose sender name matches any pattern (case-insensitive substring) are skipped — no entity created and no notifications fired. Default blocklist contains `eryk sssss` (test/spam parcel observed in the wild). Extend the set in `const.py` to add more.
+- Existing entities for newly-blocked senders go `unavailable` and are GC'd via the normal grace period.
+
 ## [0.7.0] - 2026-05-07
 
 ### Added

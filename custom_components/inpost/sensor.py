@@ -27,6 +27,7 @@ from .const import (
     STATUS_LABELS_PL,
     TERMINAL_STATUSES,
     canonicalize_sender,
+    is_sender_ignored,
 )
 from .coordinator import InpostCoordinator
 
@@ -64,9 +65,12 @@ async def async_setup_entry(
         # Pomijamy paczki w statusach terminalnych (DELIVERED/PICKED_UP/RETURNED itd.) -
         # nie chcemy ich w UI. Istniejace encje paczek ktore wlasnie tu trafily przejda
         # przez normalny grace period (active mniejsze -> miss_count rosnie -> remove).
+        # Tak samo paczki z ignorowanych nadawcow (np. testowe).
         active: set[str] = set()
         for p in coord.all_parcels:
             if p.get("status") in TERMINAL_STATUSES:
+                continue
+            if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
             sn = p.get("shipmentNumber") or p.get("id")
             if sn:
@@ -303,9 +307,11 @@ class InpostParcelSensor(InpostBase):
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
-                # Po wejsciu w status terminalny encja staje sie unavailable (zostanie
-                # usunieta przez grace period w _refresh).
+                # Po wejsciu w status terminalny lub od ignorowanego nadawcy -
+                # encja staje sie unavailable (usuwana przez grace period w _refresh).
                 if p.get("status") in TERMINAL_STATUSES:
+                    return None
+                if is_sender_ignored((p.get("sender") or {}).get("name")):
                     return None
                 return p
         return None

@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
     STORAGE_KEY_NOTIFY,
     STORAGE_VERSION,
+    is_sender_ignored,
 )
 from .coordinator import InpostCoordinator
 
@@ -152,6 +153,8 @@ class InpostNotifier:
         dirty = False
 
         for p in self.coord.pickup_parcels:
+            if is_sender_ignored((p.get("sender") or {}).get("name")):
+                continue
             sn = p.get("shipmentNumber") or p.get("id")
             if not sn:
                 continue

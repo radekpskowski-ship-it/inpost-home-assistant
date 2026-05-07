@@ -178,6 +178,24 @@ SENDER_ALIASES: list[tuple[str, str]] = [
 ]
 
 
+# Nadawcy ignorowani na sztywno - zwykle paczki testowe/spam ktorych nie chcemy
+# w UI ani w powiadomieniach. Match case-insensitive substring.
+# Aby dorzucic kolejny - po prostu dodaj wzorzec ponizej.
+IGNORED_SENDER_PATTERNS: set[str] = {
+    "eryk sssss",
+}
+
+
+def is_sender_ignored(raw_sender: str | None) -> bool:
+    """Czy nadawca pasuje do ktoregos wzorca z IGNORED_SENDER_PATTERNS."""
+    if not raw_sender:
+        return False
+    s = raw_sender.strip().lower()
+    if not s:
+        return False
+    return any(p in s for p in IGNORED_SENDER_PATTERNS)
+
+
 def canonicalize_sender(raw_sender: str | None) -> str:
     """Spaczowanie surowych nazw nadawcow z API na ladne, krotkie etykiety.
 
