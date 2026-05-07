@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-05-07
+
+### Fixed
+- **QR images now actually display.** v0.13.0 returned `/local/inpost/<sn>.png` from `image_url` property — HA's image component treats `image_url` as a URL to **HTTP-fetch** and crashed with `Request URL is missing an 'http://' or 'https://' protocol`. Replaced with `async_image()` returning PNG bytes directly from disk. `picture-entity` and `image` cards now render the QR codes correctly.
+
 ## [0.13.0] - 2026-05-07
 
 ### ⚠ BREAKING — QR moved to `image` domain

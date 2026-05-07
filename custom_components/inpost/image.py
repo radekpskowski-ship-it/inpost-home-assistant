@@ -233,13 +233,25 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
                 self._qr_for_open_code = None
                 self._attr_image_last_updated = None
 
-    @property
-    def image_url(self) -> str | None:
-        """Zwracamy URL do statycznego pliku - HA frontend serwuje sam.
+    async def async_image(self) -> bytes | None:
+        """Zwraca bytes PNG z dysku.
 
-        Alternatywa: implementacja async_image() ktora czyta bytes -
-        ale URL jest prostsze i nizsze obciazenie HA event loop.
+        UWAGA: NIE uzywamy `image_url` - HA implementuje to przez HTTP fetch
+        z absolutnego URL, a nasze pliki sa lokalne. async_image zwracajaca
+        bytes omija fetch w ogole.
         """
-        if self._qr_for_open_code:
-            return _qr_url_for(self._sn)
-        return None
+        if not self._qr_for_open_code:
+            return None
+        path = _qr_path_for(self.hass, self._sn)
+
+        def _read() -> bytes | None:
+            try:
+                with open(path, "rb") as f:
+                    return f.read()
+            except FileNotFoundError:
+                return None
+            except OSError:
+                _LOGGER.exception("InPost: blad odczytu QR PNG %s", path)
+                return None
+
+        return await self.hass.async_add_executor_job(_read)
