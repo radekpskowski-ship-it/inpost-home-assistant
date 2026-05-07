@@ -89,6 +89,20 @@ async def async_setup_entry(
     parcel_miss: dict[str, int] = {}  # sn -> ile pustych odczytow
     pp_miss: dict[str, int] = {}      # pp_name -> ile pustych odczytow
 
+    # STARTUP CLEANUP: usuwamy WSZYSTKIE dynamiczne encje (per-paczka + per-paczkomat)
+    # z poprzedniej sesji. _refresh ponizej stworzy je od nowa z aktualnych danych API.
+    # Eliminuje zombie po migracjach / mockach / zmianach struktury - czysty start.
+    ent_reg_init = er.async_get(hass)
+    cleaned = 0
+    for ent in list(er.async_entries_for_config_entry(ent_reg_init, entry.entry_id)):
+        uid = ent.unique_id or ""
+        if uid.startswith(parcel_uid_prefix) or uid.startswith(pp_uid_prefix):
+            _LOGGER.info("InPost startup cleanup: usuwam %s", ent.entity_id)
+            ent_reg_init.async_remove(ent.entity_id)
+            cleaned += 1
+    if cleaned:
+        _LOGGER.info("InPost startup cleanup: usunieto %d encji - zostana odtworzone", cleaned)
+
     @callback
     def _refresh() -> None:
         ent_reg = er.async_get(hass)

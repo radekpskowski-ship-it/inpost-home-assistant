@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-05-07
+
+### Changed
+- **Startup cleanup of dynamic entities.** Every time the integration is set up (HA boot or reload), all dynamic entities (`_parcel_*` and `_pickup_point_*`) are wiped from `entity_registry` first; then the first refresh recreates them based on the current API state. This eliminates zombie entities left over from previous sessions, mock testing, or model migrations. Static entities (count, nearest_distance) are preserved.
+
 ## [0.10.1] - 2026-05-07
 
 ### Fixed
