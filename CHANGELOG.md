@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-05-19
+
+### Changed
+- **QR payload now matches the InPost mobile app format.** Previous versions encoded only the `openCode` (4-digit PIN) — that works at the paczkomat scanner but does not match what the official app shows. Now the QR contains `P|<phone>|<openCode>` (e.g. `P|790406456|519213`), where `phone` is the InPost account phone number from the integration entry (`entry.data[CONF_PHONE]`). This mirrors the paczkomat keypad fallback ("enter phone + PIN") and matches the QR shown in the InPost Mobile app, so the same screenshot can be scanned at any locker that accepts either method.
+- `_generate_qr_png(open_code, output_path)` → `_generate_qr_png(open_code, phone, output_path)`. Internal API change; image.py caller updated to pass `entry.data[CONF_PHONE]`. Cache key (`self._qr_for_open_code`) still tracks openCode — phone is per-entry and stable, so it is not part of the invalidation signal.
+- Generation remains fully local: phone + openCode never leave the HA host.
+
 ## [0.13.3] - 2026-05-07
 
 ### Fixed

@@ -85,21 +85,27 @@ def _qr_url_for(sn: str) -> str:
     return f"/local/{_QR_SUBDIR}/{sn}.png"
 
 
-def _generate_qr_png(open_code: str, output_path: str) -> None:
+def _generate_qr_png(open_code: str, phone: str, output_path: str) -> None:
     """Synchroniczna generacja QR PNG. Wywoluj przez async_add_executor_job.
 
-    Encoding: tylko openCode (PIN do paczkomatu) - to wszystko czego paczkomat
-    potrzebuje. Kod nie jest wysylany nigdzie poza lokalny dysk HA.
+    Encoding: format `P|<phone>|<openCode>` - to ten sam payload co pokazuje
+    aplikacja mobilna InPost. Paczkomat wymaga numeru telefonu + PIN-u przy
+    rozladowaniu skrytki (alternatywa keypad: "numer + PIN"). QR przesyla oba
+    pola atomicznie.
+
+    QR generowany lokalnie - openCode + phone nigdy nie sa wysylane do
+    zadnej zewnetrznej uslugi.
     """
     import qrcode  # imported lazily so we don't pay if no parcels yet
 
+    payload = f"P|{phone}|{open_code}"
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=10,
         border=2,
     )
-    qr.add_data(str(open_code))
+    qr.add_data(payload)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     img.save(output_path, optimize=True)

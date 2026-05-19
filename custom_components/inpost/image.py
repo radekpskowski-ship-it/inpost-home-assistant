@@ -228,12 +228,13 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
         d = self._data()
         path = _qr_path_for(self.hass, self._sn)
         open_code = (d or {}).get("openCode") if d else None
+        phone = str(self._entry.data.get(CONF_PHONE) or "")
         if open_code:
             if self._qr_for_open_code == open_code and os.path.exists(path):
                 return
             try:
                 await self.hass.async_add_executor_job(
-                    _generate_qr_png, open_code, path
+                    _generate_qr_png, open_code, phone, path
                 )
                 self._qr_for_open_code = open_code
                 # bump cache - HA frontend pobierze nowy obrazek
