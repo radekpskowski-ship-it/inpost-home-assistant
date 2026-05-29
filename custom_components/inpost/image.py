@@ -38,13 +38,10 @@ from .const import (
 )
 from .coordinator import InpostCoordinator
 from .sensor import (
-    _QR_SUBDIR,
     _delete_qr_png,
     _format_pp_address,
     _generate_qr_png,
-    _qr_dir,
     _qr_path_for,
-    _qr_url_for,
     _slug_for_entity_id,
 )
 
@@ -147,8 +144,8 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
         self._attr_unique_id = f"{entry.entry_id}_qr_image_{self._sn}"
         self._attr_suggested_object_id = f"qr_paczka_{_slug_for_entity_id(self._sn)}"
         self._attr_device_info = _device_info(entry)
-        # sledzenie openCode dla cache PNG-a
-        self._qr_for_open_code: str | None = None
+        # sledzenie payloadu QR dla cache PNG-a (regeneracja gdy payload sie zmieni)
+        self._qr_payload: str | None = None
 
     def _data(self) -> dict | None:
         for p in self.coordinator.pickup_parcels:
@@ -215,9 +212,33 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
     async def async_will_remove_from_hass(self) -> None:
         # uprzatamy plik PNG przy usuwaniu
         await self.hass.async_add_executor_job(
-            _delete_qr_png, _qr_path_for(self.hass, self._sn)
+            _delete_qr_png, _qr_path_for(self.hass, self._entry.entry_id, self._sn)
         )
         await super().async_will_remove_from_hass()
+
+    def _resolve_qr_payload(self, d: dict | None) -> str | None:
+        """Payload QR = pole `qrCode` z API (verbatim).
+
+        Fallback gdy API nie poda `qrCode`: skladamy `P|+48<receiver>|<openCode>`
+        z numeru ODBIORCY paczki (nie numeru logowania konta!), z prefiksem +48.
+        """
+        if not d:
+            return None
+        api_qr = (d.get("qrCode") or "").strip()
+        if api_qr:
+            return api_qr
+        open_code = (d.get("openCode") or "").strip()
+        if not open_code:
+            return None
+        phone = str((d.get("receiver") or {}).get("phoneNumber") or "").strip()
+        if not phone:
+            # ostateczny fallback - numer konta (entry)
+            phone = str(self._entry.data.get(CONF_PHONE) or "").strip()
+        if not phone:
+            return None
+        if not phone.startswith("+"):
+            phone = f"+48{phone}"
+        return f"P|{phone}|{open_code}"
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -226,26 +247,25 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
 
     async def _async_sync_qr(self) -> None:
         d = self._data()
-        path = _qr_path_for(self.hass, self._sn)
-        open_code = (d or {}).get("openCode") if d else None
-        phone = str(self._entry.data.get(CONF_PHONE) or "")
-        if open_code:
-            if self._qr_for_open_code == open_code and os.path.exists(path):
+        path = _qr_path_for(self.hass, self._entry.entry_id, self._sn)
+        payload = self._resolve_qr_payload(d)
+        if payload:
+            if self._qr_payload == payload and os.path.exists(path):
                 return
             try:
                 await self.hass.async_add_executor_job(
-                    _generate_qr_png, open_code, phone, path
+                    _generate_qr_png, payload, path
                 )
-                self._qr_for_open_code = open_code
+                self._qr_payload = payload
                 # bump cache - HA frontend pobierze nowy obrazek
                 self._attr_image_last_updated = datetime.now(timezone.utc)
                 _LOGGER.debug("InPost: QR image - wygenerowany dla %s", self._sn)
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("InPost: blad generacji QR image dla %s", self._sn)
         else:
-            if self._qr_for_open_code is not None or os.path.exists(path):
+            if self._qr_payload is not None or os.path.exists(path):
                 await self.hass.async_add_executor_job(_delete_qr_png, path)
-                self._qr_for_open_code = None
+                self._qr_payload = None
                 self._attr_image_last_updated = None
 
     async def async_image(self) -> bytes | None:
@@ -255,9 +275,9 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
         z absolutnego URL, a nasze pliki sa lokalne. async_image zwracajaca
         bytes omija fetch w ogole.
         """
-        if not self._qr_for_open_code:
+        if not self._qr_payload:
             return None
-        path = _qr_path_for(self.hass, self._sn)
+        path = _qr_path_for(self.hass, self._entry.entry_id, self._sn)
 
         def _read() -> bytes | None:
             try:

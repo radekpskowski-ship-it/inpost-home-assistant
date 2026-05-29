@@ -76,8 +76,10 @@ def _qr_dir(hass: HomeAssistant) -> str:
     return path
 
 
-def _qr_path_for(hass: HomeAssistant, sn: str) -> str:
-    return os.path.join(_qr_dir(hass), f"{sn}.png")
+def _qr_path_for(hass: HomeAssistant, entry_id: str, sn: str) -> str:
+    # Plik namespacowany per config entry - ta sama (wspoldzielona przez sharedTo)
+    # paczka widoczna w dwoch kontach nie nadpisuje sobie nawzajem PNG-a.
+    return os.path.join(_qr_dir(hass), f"{entry_id}_{sn}.png")
 
 
 def _qr_url_for(sn: str) -> str:
@@ -85,20 +87,20 @@ def _qr_url_for(sn: str) -> str:
     return f"/local/{_QR_SUBDIR}/{sn}.png"
 
 
-def _generate_qr_png(open_code: str, phone: str, output_path: str) -> None:
-    """Synchroniczna generacja QR PNG. Wywoluj przez async_add_executor_job.
+def _generate_qr_png(payload: str, output_path: str) -> None:
+    """Synchroniczna generacja QR PNG z gotowego payloadu. Wywoluj przez async_add_executor_job.
 
-    Encoding: format `P|<phone>|<openCode>` - to ten sam payload co pokazuje
-    aplikacja mobilna InPost. Paczkomat wymaga numeru telefonu + PIN-u przy
-    rozladowaniu skrytki (alternatywa keypad: "numer + PIN"). QR przesyla oba
-    pola atomicznie.
+    `payload` to dokladna zawartosc QR - bierzemy pole `qrCode` z API InPost
+    (format `P|+48<numer-odbiorcy>|<openCode>`), zeby numer w kodzie zgadzal sie
+    z ODBIORCA paczki, a nie z numerem logowania konta. Ma to znaczenie dla
+    paczek wspoldzielonych (`sharedTo`), ktore widac w wielu kontach, oraz
+    gwarantuje prefiks +48 jak w natywnym payloadzie aplikacji.
 
-    QR generowany lokalnie - openCode + phone nigdy nie sa wysylane do
-    zadnej zewnetrznej uslugi.
+    QR generowany lokalnie - payload nigdy nie jest wysylany do zadnej
+    zewnetrznej uslugi.
     """
     import qrcode  # imported lazily so we don't pay if no parcels yet
 
-    payload = f"P|{phone}|{open_code}"
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
