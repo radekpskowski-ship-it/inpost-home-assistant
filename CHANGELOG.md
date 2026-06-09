@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-09
+
+### Added
+- **Adaptive polling boost on QR view.** When the QR pickup code (`image.inpost_qr_paczka_*`) is fetched by the HA frontend (i.e. someone opens the code to pick the parcel up), the coordinator drops its poll interval from 15 min to **2 min** for that shipment, so the `DELIVERED`/`PICKED_UP` transition is detected almost immediately and the parcel flips to "Odebrana" (12 h visibility window) as before. The boost ends per-parcel once it is picked up, disappears from the API, or after a `BOOST_MAX_MIN` (60 min) safety cap from the last view — after which the interval returns to 15 min. `note_qr_viewed()` also triggers an immediate refresh on first view.
+  - Note: the HA `image` domain caches served bytes, so the view hook fires (reliably) on the first fetch after a QR (re)generation — enough to start the boost; subsequent cached views don't re-fire but the boost is already active.
+
+### Changed
+- **Static sensors tolerate transient API failures.** "Paczki do odbioru" (count) and the nearest-distance sensor no longer flap to `unavailable` on a single failed poll (rate-limit / timeout / API error). `DataUpdateCoordinator` keeps the last data, and entities stay available as long as the API answered within `AVAILABILITY_GRACE_MIN` (3 cycles = 45 min). Eliminates the recurring `unavailable → 0` logbook noise. Per-parcel and per-paczkomat sensors were already data-driven and unaffected.
+
 ## [0.13.4] - 2026-05-19
 
 ### Changed

@@ -303,6 +303,12 @@ class InpostBase(CoordinatorEntity[InpostCoordinator], SensorEntity):
         self._entry = entry
         self._attr_device_info = _device_info(entry)
 
+    @property
+    def available(self) -> bool:
+        # Tolerancja przejsciowych bledow API: pojedynczy nieudany poll nie wrzuca
+        # encji w 'unavailable' (dane zachowane). Patrz coordinator.is_recently_alive.
+        return self.coordinator.is_recently_alive
+
 
 class InpostCountSensor(InpostBase):
     """Liczba paczek aktualnie czekajacych w paczkomacie do odbioru."""

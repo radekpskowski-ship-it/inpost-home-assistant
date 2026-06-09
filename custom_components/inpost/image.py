@@ -289,4 +289,11 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
                 _LOGGER.exception("InPost: blad odczytu QR PNG %s", path)
                 return None
 
-        return await self.hass.async_add_executor_job(_read)
+        data = await self.hass.async_add_executor_job(_read)
+        if data is not None:
+            # Frontend pobral bajty QR = ktos wlasnie podejrzal kod odbioru.
+            # Wlaczamy szybszy polling, zeby blyskawicznie wykryc odbior paczki.
+            # UWAGA: domena 'image' cache'uje - hook odpala sie zwykle raz, przy
+            # pierwszym pobraniu po (re)generacji QR. Do startu boostu to wystarcza.
+            self.coordinator.note_qr_viewed(self._sn)
+        return data

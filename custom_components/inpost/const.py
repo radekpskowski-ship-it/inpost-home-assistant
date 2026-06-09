@@ -30,6 +30,18 @@ STORAGE_KEY_NOTIFY = "inpost_notify"
 
 UPDATE_INTERVAL_MIN = 15  # co ile minut odpytujemy API
 
+# Po nieudanym pollu (rate-limit / timeout / blad API) encje statyczne NIE ida od razu
+# w 'unavailable' - DataUpdateCoordinator zachowuje ostatnie dane. Dopiero gdy API milczy
+# dluzej niz to okno (3 cykle) encja staje sie niedostepna. Eliminuje flapping 'unavailable -> 0'.
+AVAILABILITY_GRACE_MIN = UPDATE_INTERVAL_MIN * 3
+
+# BOOST: gdy ktos wyswietli QR odbioru (image entity), przez chwile odpytujemy API
+# czesciej (co BOOST_INTERVAL_MIN), zeby szybko wykryc odbior paczki. Boost dla danej
+# przesylki konczy sie gdy zostanie odebrana, zniknie z API, albo minie BOOST_MAX_MIN
+# od ostatniego podgladu (bezpiecznik - ktos tylko zerknal i nie poszedl po paczke).
+BOOST_INTERVAL_MIN = 2
+BOOST_MAX_MIN = 60
+
 # Statusy w ktorych paczka jest gotowa do odbioru (tylko te wyzwalaja powiadomienia o dystansie).
 PICKUP_STATUSES = {
     "READY_TO_PICKUP",
