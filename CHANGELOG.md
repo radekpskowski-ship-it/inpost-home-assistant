@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-06-13
+
+### Fixed
+- **Shared parcels no longer duplicate across accounts.** With two phone numbers added to the integration, a parcel shared via InPost's "udostępnij paczkę" (`sharedTo`) shows up in `/v3/parcels/tracked` for **both** accounts, so each config entry independently created its own entities for it — most visibly **two QR cards** (`image.inpost_qr_paczka_*`), but also duplicate `sensor.inpost_paczka_*` and `sensor.inpost_paczkomat_*`. v0.13.5 only fixed the QR *payload* (receiver number), not the duplicate *entities*. Now a parcel is materialized only on the account that is its **receiver** (`receiver.phoneNumber` == the account's login number), so it appears exactly once.
+  - Safe fallback so nothing silently disappears: if the API returns no `receiver.phoneNumber`, or the receiver is a third party that is **not** one of the added accounts, the parcel is shown on every account as before. A parcel is hidden on an account **only** when its receiver is a *different* number that is itself added to the integration.
+  - New helper `normalize_phone()` in `const.py` (compares the last 9 digits, tolerating the `+48` prefix / spaces) and `parcel_belongs_to_entry()` in `sensor.py`, applied in both the `sensor` and `image` platforms' refresh loops and availability checks. Pre-existing duplicate entities are removed via the normal startup cleanup + grace period.
+
 ## [0.14.0] - 2026-06-09
 
 ### Added

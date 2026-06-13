@@ -54,6 +54,7 @@ from .const import (
     TERMINAL_STATUSES,
     canonicalize_sender,
     is_sender_ignored,
+    normalize_phone,
 )
 
 # Subfolder w /config/www/ na PNG-i z QR. HA serwuje /config/www/ pod URL /local/.
@@ -157,6 +158,41 @@ def _format_pp_address(addr_details: dict, *, with_postcode: bool = False) -> st
     return ", ".join(parts)
 
 
+def _account_phones(hass: HomeAssistant) -> set[str]:
+    """Numery wszystkich dodanych kont InPost (znormalizowane do 9 cyfr)."""
+    phones: set[str] = set()
+    for data in (hass.data.get(DOMAIN) or {}).values():
+        if not isinstance(data, dict):
+            continue
+        coord = data.get("coordinator")
+        if coord is None:
+            continue
+        p = normalize_phone(coord.entry.data.get(CONF_PHONE))
+        if p:
+            phones.add(p)
+    return phones
+
+
+def parcel_belongs_to_entry(hass: HomeAssistant, entry: ConfigEntry, parcel: dict) -> bool:
+    """Czy paczka ma byc materializowana jako encja na TYM koncie (dedup `sharedTo`).
+
+    Paczke wspoldzielona widac w API obu kont -> bez dedup powstaja duplikaty
+    encji (m.in. dwie karty QR) na kazdym dodanym numerze. Regula: encje tworzy
+    konto bedace ODBIORCA paczki (`receiver.phoneNumber` == numer konta).
+
+    Fallback bezpieczny - zeby nic nie zniknelo z dashboardu:
+      * brak `receiver.phoneNumber` w API -> pokaz (nie ma jak rozsadzic),
+      * odbiorca to osoba trzecia (zaden z dodanych numerow) -> pokaz wszedzie.
+    Ukrywamy WYLACZNIE gdy odbiorca to INNE konto dodane do tej integracji.
+    """
+    recv = normalize_phone((parcel.get("receiver") or {}).get("phoneNumber"))
+    if not recv:
+        return True
+    if recv == normalize_phone(entry.data.get(CONF_PHONE)):
+        return True
+    return recv not in _account_phones(hass)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -204,6 +240,8 @@ async def async_setup_entry(
         for p in coord.all_parcels:
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
+            if not parcel_belongs_to_entry(hass, entry, p):
+                continue  # paczka wspoldzielona - pokazuje ja konto-odbiorca
             status = p.get("status")
             if status in TERMINAL_STATUSES:
                 continue  # CANCELED / PICKUP_TIME_EXPIRED - od razu hide
@@ -243,6 +281,8 @@ async def async_setup_entry(
         for p in coord.pickup_parcels:
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
+            if not parcel_belongs_to_entry(hass, entry, p):
+                continue  # paczka wspoldzielona - liczy ja konto-odbiorca
             pp_name = (p.get("pickUpPoint") or {}).get("name")
             if pp_name:
                 active_pps.add(str(pp_name))
@@ -456,6 +496,8 @@ class InpostParcelSensor(InpostBase):
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
                 if is_sender_ignored((p.get("sender") or {}).get("name")):
                     return None
+                if not parcel_belongs_to_entry(self.coordinator.hass, self._entry, p):
+                    return None  # paczka wspoldzielona - nalezy do innego konta
                 status = p.get("status")
                 if status in TERMINAL_STATUSES:
                     return None
@@ -562,6 +604,8 @@ class InpostPickupPointSensor(InpostBase):
         for p in self.coordinator.pickup_parcels:
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
+            if not parcel_belongs_to_entry(self.coordinator.hass, self._entry, p):
+                continue  # paczka wspoldzielona - liczy ja konto-odbiorca
             pp = p.get("pickUpPoint") or {}
             if str(pp.get("name") or "") == self._pp:
                 out.append(p)

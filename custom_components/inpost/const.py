@@ -1,4 +1,6 @@
 """Stale dla integracji InPost."""
+import re
+
 DOMAIN = "inpost"
 CONF_PHONE = "phone_number"
 CONF_AUTH_TOKEN = "auth_token"
@@ -211,6 +213,16 @@ def is_sender_ignored(raw_sender: str | None) -> bool:
     if not s:
         return False
     return any(p in s for p in IGNORED_SENDER_PATTERNS)
+
+
+def normalize_phone(value) -> str:
+    """Ostatnie 9 cyfr numeru telefonu - porownywalne mimo prefiksu +48 / spacji.
+
+    InPost zwraca `receiver.phoneNumber` jako `+48XXXXXXXXX`, a numer konta
+    (CONF_PHONE) trzymamy jako 9 cyfr. Sprowadzamy oba do ostatnich 9 cyfr,
+    zeby moc je porownac (dedup paczek wspoldzielonych - patrz sensor.py).
+    """
+    return re.sub(r"\D", "", str(value or ""))[-9:]
 
 
 def canonicalize_sender(raw_sender: str | None) -> str:

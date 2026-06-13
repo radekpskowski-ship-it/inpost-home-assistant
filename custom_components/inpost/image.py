@@ -43,6 +43,7 @@ from .sensor import (
     _generate_qr_png,
     _qr_path_for,
     _slug_for_entity_id,
+    parcel_belongs_to_entry,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ async def async_setup_entry(
         for p in coord.pickup_parcels:
             if is_sender_ignored((p.get("sender") or {}).get("name")):
                 continue
+            if not parcel_belongs_to_entry(hass, entry, p):
+                continue  # paczka wspoldzielona - QR pokazuje konto-odbiorca
             if not p.get("openCode"):
                 continue
             sn = p.get("shipmentNumber") or p.get("id")
@@ -152,6 +155,8 @@ class InpostQRImage(CoordinatorEntity[InpostCoordinator], ImageEntity):
             if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
                 if is_sender_ignored((p.get("sender") or {}).get("name")):
                     return None
+                if not parcel_belongs_to_entry(self.coordinator.hass, self._entry, p):
+                    return None  # paczka wspoldzielona - QR nalezy do innego konta
                 if not p.get("openCode"):
                     return None
                 return p
