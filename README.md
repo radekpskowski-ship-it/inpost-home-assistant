@@ -35,6 +35,30 @@ Home Assistant custom integration for **InPost parcel lockers (paczkomaty)** —
 2. Restart Home Assistant.
 3. *Settings → Devices & services → Add integration → InPost*.
 
+## Dashboard card
+
+The integration ships its own Lovelace card — no resource to register. *Edit dashboard → Add card →*
+search for **InPost**, or:
+
+```yaml
+type: custom:inpost-qr-card
+title: Paczki          # optional
+account: "123456789"   # optional - one account only
+show_code: true        # pickup code as text (needs the "expose pickup codes" option)
+show_in_transit: true
+show_delivered: false
+qr_size: 150
+```
+
+Tap a QR code to show it full screen for the locker scanner. The QR image is served through
+Home Assistant's authenticated image proxy and works even with pickup codes not exposed.
+
+## Events
+
+`event.inpost_paczka` fires `new_parcel`, `ready_to_pickup`, `delivered` or `status_changed`;
+`event.inpost_powiadomienie` fires for each new InPost app notification. The same payloads go to
+the event bus as `inpost_parcel_event` / `inpost_notification`.
+
 ## Configuration
 
 1. Click **Add Integration → InPost**.

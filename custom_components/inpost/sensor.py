@@ -22,14 +22,14 @@ status terminalny / paczkomat sie oprozni.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfLength
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import UnitOfLength
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -53,75 +53,20 @@ from .const import (
     STATUS_LABELS_PL,
     TERMINAL_STATUSES,
     canonicalize_sender,
-    is_sender_ignored,
-    normalize_phone,
 )
 
-# Subfolder w /config/www/ na PNG-i z QR. HA serwuje /config/www/ pod URL /local/.
-_QR_SUBDIR = "inpost"
-from .coordinator import InpostCoordinator
+from .coordinator import InpostCoordinator, format_pp_address, parcel_belongs_to_entry, parcel_sn
 
 _LOGGER = logging.getLogger(__name__)
 
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
+# zgodnosc wsteczna importow (image.py)
+_format_pp_address = format_pp_address
+
 
 def _slug_for_entity_id(s: str) -> str:
     return _NON_ALNUM_RE.sub("_", str(s)).strip("_").lower()
-
-
-def _qr_dir(hass: HomeAssistant) -> str:
-    """Sciezka do /config/www/inpost/ - tworzy katalog jesli nie istnieje (sync, do executora)."""
-    path = hass.config.path("www", _QR_SUBDIR)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def _qr_path_for(hass: HomeAssistant, entry_id: str, sn: str) -> str:
-    # Plik namespacowany per config entry - ta sama (wspoldzielona przez sharedTo)
-    # paczka widoczna w dwoch kontach nie nadpisuje sobie nawzajem PNG-a.
-    return os.path.join(_qr_dir(hass), f"{entry_id}_{sn}.png")
-
-
-def _qr_url_for(sn: str) -> str:
-    """URL relative do HA frontend - /local/ to alias dla /config/www/."""
-    return f"/local/{_QR_SUBDIR}/{sn}.png"
-
-
-def _generate_qr_png(payload: str, output_path: str) -> None:
-    """Synchroniczna generacja QR PNG z gotowego payloadu. Wywoluj przez async_add_executor_job.
-
-    `payload` to dokladna zawartosc QR - bierzemy pole `qrCode` z API InPost
-    (format `P|+48<numer-odbiorcy>|<openCode>`), zeby numer w kodzie zgadzal sie
-    z ODBIORCA paczki, a nie z numerem logowania konta. Ma to znaczenie dla
-    paczek wspoldzielonych (`sharedTo`), ktore widac w wielu kontach, oraz
-    gwarantuje prefiks +48 jak w natywnym payloadzie aplikacji.
-
-    QR generowany lokalnie - payload nigdy nie jest wysylany do zadnej
-    zewnetrznej uslugi.
-    """
-    import qrcode  # imported lazily so we don't pay if no parcels yet
-
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=10,
-        border=2,
-    )
-    qr.add_data(payload)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    img.save(output_path, optimize=True)
-
-
-def _delete_qr_png(path: str) -> None:
-    """Synchroniczne usuwanie. Cicho ignoruje brak pliku."""
-    try:
-        os.remove(path)
-    except FileNotFoundError:
-        pass
-    except OSError:
-        _LOGGER.debug("Nie udalo sie usunac %s", path, exc_info=True)
 
 
 def _is_recent_pickup_visible(parcel: dict) -> bool:
@@ -140,57 +85,31 @@ def _is_recent_pickup_visible(parcel: dict) -> bool:
     return (dt_util.utcnow() - pickup_dt) < timedelta(hours=POST_PICKUP_VISIBILITY_HOURS)
 
 
-def _format_pp_address(addr_details: dict, *, with_postcode: bool = False) -> str:
-    """Buduje krotki adres paczkomatu: 'ulica numer, miasto' (lub z kodem gdy with_postcode).
+def ensure_stable_entity_ids(
+    hass: HomeAssistant, entry: ConfigEntry, expected: dict[str, str], drop: tuple[str, ...] = ()
+) -> None:
+    """Pilnuj stalych entity_id encji dynamicznych: <prefix><numer przesylki / kod paczkomatu>.
 
-    addr_details: pickUpPoint.addressDetails z API (street/buildingNumber/city/postCode).
+    expected: prefix unique_id -> prefix entity_id (np. "_parcel_" -> "sensor.inpost_paczka_").
+    Do 0.15 encje nazywaly sie od nadawcy/adresu (sensor.inpost_vinted, _2, ...). Przemianowujemy
+    w rejestrze zamiast usuwac - HA pamieta entity_id usunietych encji i przy odtworzeniu
+    przywrocilby stara nazwe. `drop`: prefixy unique_id usuwane zawsze (zombie po starych wersjach).
     """
-    street = (addr_details.get("street") or "").strip()
-    building = (addr_details.get("buildingNumber") or "").strip()
-    city = (addr_details.get("city") or "").strip()
-    post = (addr_details.get("postCode") or "").strip()
-    line1 = " ".join(x for x in [street, building] if x).strip()
-    if with_postcode and post:
-        right = f"{post} {city}".strip() if city else post
-    else:
-        right = city
-    parts = [x for x in [line1, right] if x]
-    return ", ".join(parts)
-
-
-def _account_phones(hass: HomeAssistant) -> set[str]:
-    """Numery wszystkich dodanych kont InPost (znormalizowane do 9 cyfr)."""
-    phones: set[str] = set()
-    for data in (hass.data.get(DOMAIN) or {}).values():
-        if not isinstance(data, dict):
+    ent_reg = er.async_get(hass)
+    for ent in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        uid = ent.unique_id or ""
+        if any(uid.startswith(entry.entry_id + d) for d in drop):
+            ent_reg.async_remove(ent.entity_id)
             continue
-        coord = data.get("coordinator")
-        if coord is None:
-            continue
-        p = normalize_phone(coord.entry.data.get(CONF_PHONE))
-        if p:
-            phones.add(p)
-    return phones
-
-
-def parcel_belongs_to_entry(hass: HomeAssistant, entry: ConfigEntry, parcel: dict) -> bool:
-    """Czy paczka ma byc materializowana jako encja na TYM koncie (dedup `sharedTo`).
-
-    Paczke wspoldzielona widac w API obu kont -> bez dedup powstaja duplikaty
-    encji (m.in. dwie karty QR) na kazdym dodanym numerze. Regula: encje tworzy
-    konto bedace ODBIORCA paczki (`receiver.phoneNumber` == numer konta).
-
-    Fallback bezpieczny - zeby nic nie zniknelo z dashboardu:
-      * brak `receiver.phoneNumber` w API -> pokaz (nie ma jak rozsadzic),
-      * odbiorca to osoba trzecia (zaden z dodanych numerow) -> pokaz wszedzie.
-    Ukrywamy WYLACZNIE gdy odbiorca to INNE konto dodane do tej integracji.
-    """
-    recv = normalize_phone((parcel.get("receiver") or {}).get("phoneNumber"))
-    if not recv:
-        return True
-    if recv == normalize_phone(entry.data.get(CONF_PHONE)):
-        return True
-    return recv not in _account_phones(hass)
+        for uid_prefix, eid_prefix in expected.items():
+            full = entry.entry_id + uid_prefix
+            if not uid.startswith(full) or ent.entity_id.startswith(eid_prefix):
+                continue
+            target = eid_prefix + _slug_for_entity_id(uid[len(full):])
+            if ent_reg.async_get(target) is not None or hass.states.get(target) is not None:
+                continue  # zajete (np. ta sama paczka na drugim koncie) - zostaw jak jest
+            _LOGGER.info("InPost: zmieniam entity_id %s -> %s", ent.entity_id, target)
+            ent_reg.async_update_entity(ent.entity_id, new_entity_id=target)
 
 
 async def async_setup_entry(
@@ -201,55 +120,41 @@ async def async_setup_entry(
     # static
     async_add_entities([
         InpostCountSensor(coord, entry),
+        InpostInTransitSensor(coord, entry),
+        InpostDeadlineSensor(coord, entry),
         InpostNearestSensor(coord, entry),
     ])
 
     parcel_uid_prefix = f"{entry.entry_id}_parcel_"
     pp_uid_prefix = f"{entry.entry_id}_pickup_point_"
-    # Stary prefix `_pickup_qr_` (sensor InpostPickupQRSensor z 0.12.x) -
-    # encje takiego typu juz nie istnieja, ale czyscimy zombie po update.
-    legacy_qr_uid_prefix = f"{entry.entry_id}_pickup_qr_"
     parcel_miss: dict[str, int] = {}  # sn -> ile pustych odczytow
     pp_miss: dict[str, int] = {}      # pp_name -> ile pustych odczytow
+    # Encje utworzone w TEJ sesji. Rejestr pamieta encje miedzy restartami (stale entity_id,
+    # historia), ale obiekt encji trzeba po restarcie stworzyc od nowa.
+    created_parcels: set[str] = set()
+    created_pps: set[str] = set()
 
-    # STARTUP CLEANUP: usuwamy WSZYSTKIE dynamiczne encje (per-paczka + per-paczkomat
-    # + stary qr-tile sensor jesli istnial) z poprzedniej sesji.
-    # _refresh ponizej stworzy je od nowa. Eliminuje zombie po migracjach / mockach.
-    ent_reg_init = er.async_get(hass)
-    cleaned = 0
-    for ent in list(er.async_entries_for_config_entry(ent_reg_init, entry.entry_id)):
-        uid = ent.unique_id or ""
-        if (uid.startswith(parcel_uid_prefix)
-                or uid.startswith(pp_uid_prefix)
-                or uid.startswith(legacy_qr_uid_prefix)):
-            _LOGGER.info("InPost startup cleanup: usuwam %s", ent.entity_id)
-            ent_reg_init.async_remove(ent.entity_id)
-            cleaned += 1
-    if cleaned:
-        _LOGGER.info("InPost startup cleanup: usunieto %d encji - zostana odtworzone", cleaned)
+    stable_ids = {"_parcel_": "sensor.inpost_paczka_", "_pickup_point_": "sensor.inpost_paczkomat_"}
+    ensure_stable_entity_ids(hass, entry, stable_ids, drop=("_pickup_qr_",))  # stary sensor QR z 0.12.x
 
     @callback
     def _refresh() -> None:
         ent_reg = er.async_get(hass)
         new_entities: list[SensorEntity] = []
+        ensure_stable_entity_ids(hass, entry, stable_ids)
 
         # ============ PER-PACZKA ============
         # Aktywne paczki = wszystkie w API poza terminalami i ignorowanymi nadawcami.
         # Status RECENT_PICKUP (DELIVERED/PICKED_UP) zostaje aktywny przez 12h od odbioru.
         active_parcels: set[str] = set()
-        for p in coord.all_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            if not parcel_belongs_to_entry(hass, entry, p):
-                continue  # paczka wspoldzielona - pokazuje ja konto-odbiorca
+        for p in coord.own_parcels:
             status = p.get("status")
             if status in TERMINAL_STATUSES:
                 continue  # CANCELED / PICKUP_TIME_EXPIRED - od razu hide
             if status in RECENT_PICKUP_STATUSES and not _is_recent_pickup_visible(p):
                 continue  # po 12h od odbioru - hide
-            sn = p.get("shipmentNumber") or p.get("id")
-            if sn:
-                active_parcels.add(str(sn))
+            if parcel_sn(p):
+                active_parcels.add(parcel_sn(p))
 
         existing_parcels: set[str] = set()
         for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
@@ -257,8 +162,9 @@ async def async_setup_entry(
             if uid.startswith(parcel_uid_prefix):
                 existing_parcels.add(uid[len(parcel_uid_prefix):])
 
-        for sn in active_parcels - existing_parcels:
+        for sn in active_parcels - created_parcels:
             new_entities.append(InpostParcelSensor(coord, entry, sn))
+            created_parcels.add(sn)
         for sn in active_parcels:
             parcel_miss.pop(sn, None)
         for sn in existing_parcels - active_parcels:
@@ -274,15 +180,12 @@ async def async_setup_entry(
                 _LOGGER.info("InPost: usuwam encje paczki %s (terminal/ignore)", entity_id)
                 ent_reg.async_remove(entity_id)
             parcel_miss.pop(sn, None)
+            created_parcels.discard(sn)
 
         # ============ PER-PACZKOMAT ============
         # Paczkomat tworzony tylko gdy paczka FIZYCZNIE w nim (PICKUP_STATUSES).
         active_pps: set[str] = set()
-        for p in coord.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            if not parcel_belongs_to_entry(hass, entry, p):
-                continue  # paczka wspoldzielona - liczy ja konto-odbiorca
+        for p in coord.own_pickup_parcels:
             pp_name = (p.get("pickUpPoint") or {}).get("name")
             if pp_name:
                 active_pps.add(str(pp_name))
@@ -293,8 +196,9 @@ async def async_setup_entry(
             if uid.startswith(pp_uid_prefix):
                 existing_pps.add(uid[len(pp_uid_prefix):])
 
-        for pp_name in active_pps - existing_pps:
+        for pp_name in active_pps - created_pps:
             new_entities.append(InpostPickupPointSensor(coord, entry, pp_name))
+            created_pps.add(pp_name)
         for pp_name in active_pps:
             pp_miss.pop(pp_name, None)
         for pp_name in existing_pps - active_pps:
@@ -310,6 +214,7 @@ async def async_setup_entry(
                 _LOGGER.info("InPost: usuwam encje paczkomatu %s (pusty)", entity_id)
                 ent_reg.async_remove(entity_id)
             pp_miss.pop(pp_name, None)
+            created_pps.discard(pp_name)
 
         # QR codes sa teraz wystawiane jako image entities (image.py).
         # Stary InpostPickupQRSensor (sensor.inpost_qr_paczka_<sn>) usuniety.
@@ -351,12 +256,11 @@ class InpostBase(CoordinatorEntity[InpostCoordinator], SensorEntity):
 
 
 class InpostCountSensor(InpostBase):
-    """Liczba paczek aktualnie czekajacych w paczkomacie do odbioru."""
+    """Liczba paczek tego konta czekajacych do odbioru (wspoldzielone liczy konto-odbiorca)."""
 
     _attr_translation_key = "count"
     _attr_name = "Paczki do odbioru"
     _attr_icon = "mdi:package-variant-closed-check"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coord, entry):
         super().__init__(coord, entry)
@@ -364,14 +268,82 @@ class InpostCountSensor(InpostBase):
 
     @property
     def native_value(self) -> int:
-        return sum(
-            1 for p in self.coordinator.pickup_parcels
-            if not is_sender_ignored((p.get("sender") or {}).get("name"))
-        )
+        return len(self.coordinator.own_pickup_parcels)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"inpost_type": "count", "account": self._entry.data.get(CONF_PHONE)}
+
+
+class InpostInTransitSensor(InpostBase):
+    """Liczba paczek tego konta w drodze (jeszcze nie w paczkomacie, nie odebrane, nie zwrot)."""
+
+    _attr_name = "Paczki w drodze"
+    _attr_icon = "mdi:truck-delivery-outline"
+
+    def __init__(self, coord, entry):
+        super().__init__(coord, entry)
+        self._attr_unique_id = f"{entry.entry_id}_in_transit"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.own_in_transit_parcels)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "inpost_type": "in_transit",
+            "account": self._entry.data.get(CONF_PHONE),
+            "parcels": [
+                {k: v for k, v in self.coordinator.parcel_payload(p).items()
+                 if k in ("shipment_number", "sender", "status", "status_raw")}
+                for p in self.coordinator.own_in_transit_parcels
+            ],
+        }
+
+
+class InpostDeadlineSensor(InpostBase):
+    """Najblizszy termin odbioru sposrod paczek czekajacych w paczkomacie."""
+
+    _attr_name = "Termin odbioru"
+    _attr_icon = "mdi:timer-sand"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coord, entry):
+        super().__init__(coord, entry)
+        self._attr_unique_id = f"{entry.entry_id}_pickup_deadline"
+
+    def _earliest(self):
+        best = None
+        for p in self.coordinator.own_pickup_parcels:
+            dt = dt_util.parse_datetime(str(p.get("expiryDate") or ""))
+            if dt is None:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=dt_util.UTC)
+            if best is None or dt < best[0]:
+                best = (dt, p)
+        return best
+
+    @property
+    def native_value(self):
+        best = self._earliest()
+        return best[0] if best else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        best = self._earliest()
+        if not best:
+            return {}
+        payload = self.coordinator.parcel_payload(best[1])
+        return {k: payload[k] for k in ("shipment_number", "sender", "pickup_point", "address")}
 
 
 class InpostNearestSensor(InpostBase):
-    """Dystans (m) z device_tracker do najblizszego paczkomatu z paczka do odbioru."""
+    """Dystans (m) z device_tracker do najblizszego paczkomatu z paczka do odbioru.
+
+    Liczy tez paczki wspoldzielone z innego konta - udostepniona paczke mozesz odebrac.
+    """
 
     _attr_translation_key = "nearest_distance"
     _attr_name = "Najblizsza paczka (dystans)"
@@ -420,63 +392,47 @@ class InpostNearestSensor(InpostBase):
                 continue
         return out
 
-    @property
-    def available(self) -> bool:
-        return bool(self._trackers) and super().available
-
-    @property
-    def native_value(self):
+    def _nearest(self) -> tuple[float, dict, int] | None:
+        """(dystans m, paczka, liczba uzytych telefonow) albo None."""
         positions = self._user_positions()
         if not positions:
             return None
         best = None
         for p in self.coordinator.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            pp = p.get("pickUpPoint") or {}
-            loc = pp.get("location") or {}
-            la = loc.get("latitude")
-            lo = loc.get("longitude")
-            if la is None or lo is None:
-                continue
+            loc = (p.get("pickUpPoint") or {}).get("location") or {}
             try:
-                lap, lop = float(la), float(lo)
+                lap, lop = float(loc.get("latitude")), float(loc.get("longitude"))
             except (TypeError, ValueError):
                 continue
             for ula, ulo in positions:
                 d = haversine_m(ula, ulo, lap, lop)
                 if best is None or d < best[0]:
                     best = (d, p)
+        return (best[0], best[1], len(positions)) if best else None
+
+    @property
+    def available(self) -> bool:
+        return bool(self._trackers) and super().available
+
+    @property
+    def native_value(self):
+        best = self._nearest()
         return round(best[0]) if best else None
 
     @property
     def extra_state_attributes(self):
-        positions = self._user_positions()
-        if not positions:
+        best = self._nearest()
+        if not best:
             return {}
-        nearest_name = None
-        nearest_d = None
-        for p in self.coordinator.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            pp = p.get("pickUpPoint") or {}
-            loc = pp.get("location") or {}
-            la = loc.get("latitude")
-            lo = loc.get("longitude")
-            if la is None or lo is None:
-                continue
-            try:
-                lap, lop = float(la), float(lo)
-            except (TypeError, ValueError):
-                continue
-            for ula, ulo in positions:
-                d = haversine_m(ula, ulo, lap, lop)
-                if nearest_d is None or d < nearest_d:
-                    nearest_d = d
-                    nearest_name = pp.get("name")
+        pp = best[1].get("pickUpPoint") or {}
+        loc = pp.get("location") or {}
         return {
-            "nearest_pickup_point": nearest_name,
-            "trackers_used": len(positions),
+            "nearest_pickup_point": pp.get("name"),
+            "nearest_shipment_number": parcel_sn(best[1]),
+            "nearest_address": format_pp_address(pp.get("addressDetails") or {}, with_postcode=True),
+            "latitude": loc.get("latitude"),
+            "longitude": loc.get("longitude"),
+            "trackers_used": best[2],
         }
 
 
@@ -488,15 +444,18 @@ class InpostParcelSensor(InpostBase):
         self._sn = str(shipment_number)
         # unique_id: SUROWY shipmentNumber - chroni przed kolizjami slug
         self._attr_unique_id = f"{entry.entry_id}_parcel_{self._sn}"
-        self._attr_suggested_object_id = f"paczka_{_slug_for_entity_id(self._sn)}"
-        # name jest dynamiczny przez property `name` (sender z aliasow)
+        # HA wylicza entity_id z nazwy w chwili rejestracji. Do tego momentu nazwa to
+        # "Paczka <numer>" (-> stale sensor.inpost_paczka_<numer>), potem nadawca.
+        self._registered = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._registered = True
 
     def _data(self) -> dict | None:
         for p in self.coordinator.all_parcels:
-            if str(p.get("shipmentNumber") or p.get("id") or "") == self._sn:
-                if is_sender_ignored((p.get("sender") or {}).get("name")):
-                    return None
-                if not parcel_belongs_to_entry(self.coordinator.hass, self._entry, p):
+            if parcel_sn(p) == self._sn:
+                if not self.coordinator.is_own(p):
                     return None  # paczka wspoldzielona - nalezy do innego konta
                 status = p.get("status")
                 if status in TERMINAL_STATUSES:
@@ -509,6 +468,8 @@ class InpostParcelSensor(InpostBase):
 
     @property
     def name(self) -> str:
+        if not self._registered:
+            return f"Paczka {self._sn}"
         d = self._data()
         raw = (d.get("sender") or {}).get("name") if d else None
         sender = canonicalize_sender(raw)
@@ -547,33 +508,29 @@ class InpostParcelSensor(InpostBase):
         pp = d.get("pickUpPoint") or {}
         loc = pp.get("location") or {}
         addr = pp.get("addressDetails") or {}
-        refs = d.get("references")
-        if isinstance(refs, dict):
-            refs = refs.get("value")
         raw_sender = (d.get("sender") or {}).get("name")
         ops = d.get("operations") or {}
-        return {
+        attrs = {
+            "inpost_type": "parcel",
+            "account": self._entry.data.get(CONF_PHONE),
             "shipment_number": d.get("shipmentNumber"),
             "status_raw": d.get("status"),
             "status_group": d.get("statusGroup"),
+            "in_locker": d.get("status") in PICKUP_STATUSES,
             "sender": canonicalize_sender(raw_sender),
             "sender_raw": raw_sender,
-            "references": refs,
-            "estimated_delivery_date": d.get("estimatedDeliveryDate"),
-            "courier_phone_number": d.get("courierPhoneNumber"),
+            "parcel_size": d.get("parcelSize"),
             "tracking_url": ops.get("redirectionUrl"),
             "shipment_type": d.get("shipmentType"),
             "pickup_date": d.get("pickUpDate"),
             "can_collect": ops.get("collect"),
             "pickup_point": pp.get("name"),
-            "address": _format_pp_address(addr, with_postcode=True),
+            "address": format_pp_address(addr, with_postcode=True),
             "city": addr.get("city"),
             "street": addr.get("street"),
             "post_code": addr.get("postCode"),
             "latitude": loc.get("latitude"),
             "longitude": loc.get("longitude"),
-            "open_code": d.get("openCode"),
-            "qr_code": d.get("qrCode"),
             "expiry_date": d.get("expiryDate"),
             "stored_date": d.get("storedDate"),
             "opening_hours": pp.get("openingHours"),
@@ -581,6 +538,11 @@ class InpostParcelSensor(InpostBase):
             "is_24_7": pp.get("location247"),
             "easy_access_zone": pp.get("easyAccessZone"),
         }
+        if self.coordinator.expose_codes:
+            # kod otwiera skrytke, a atrybuty laduja w recorderze - tylko przy wlaczonej opcji
+            attrs["open_code"] = d.get("openCode")
+            attrs["qr_code"] = d.get("qrCode")
+        return attrs
 
 
 class InpostPickupPointSensor(InpostBase):
@@ -596,16 +558,17 @@ class InpostPickupPointSensor(InpostBase):
         super().__init__(coord, entry)
         self._pp = str(pickup_point_name)
         self._attr_unique_id = f"{entry.entry_id}_pickup_point_{self._pp}"
-        self._attr_suggested_object_id = f"paczkomat_{_slug_for_entity_id(self._pp)}"
-        # name dynamiczny - z adresu paczkomatu
+        # jak w InpostParcelSensor: do rejestracji nazwa "Paczkomat <kod>"
+        # (-> stale sensor.inpost_paczkomat_<kod>), potem adres
+        self._registered = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._registered = True
 
     def _parcels(self) -> list[dict]:
         out = []
-        for p in self.coordinator.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
-            if not parcel_belongs_to_entry(self.coordinator.hass, self._entry, p):
-                continue  # paczka wspoldzielona - liczy ja konto-odbiorca
+        for p in self.coordinator.own_pickup_parcels:
             pp = p.get("pickUpPoint") or {}
             if str(pp.get("name") or "") == self._pp:
                 out.append(p)
@@ -613,11 +576,13 @@ class InpostPickupPointSensor(InpostBase):
 
     @property
     def name(self) -> str:
+        if not self._registered:
+            return f"Paczkomat {self._pp}"
         parcels = self._parcels()
         if not parcels:
             return self._pp  # fallback gdy chwilowo brak paczek
         addr = (parcels[0].get("pickUpPoint") or {}).get("addressDetails") or {}
-        formatted = _format_pp_address(addr, with_postcode=False)
+        formatted = format_pp_address(addr, with_postcode=False)
         return formatted or self._pp
 
     @property
@@ -639,19 +604,23 @@ class InpostPickupPointSensor(InpostBase):
         parcel_list = []
         for p in parcels:
             raw_sender = (p.get("sender") or {}).get("name")
-            parcel_list.append({
+            item = {
                 "shipment_number": p.get("shipmentNumber"),
                 "sender": canonicalize_sender(raw_sender),
                 "sender_raw": raw_sender,
-                "open_code": p.get("openCode"),
-                "qr_code": p.get("qrCode"),
                 "expiry_date": p.get("expiryDate"),
                 "stored_date": p.get("storedDate"),
                 "status_raw": p.get("status"),
-            })
+            }
+            if self.coordinator.expose_codes:
+                item["open_code"] = p.get("openCode")
+                item["qr_code"] = p.get("qrCode")
+            parcel_list.append(item)
         return {
+            "inpost_type": "pickup_point",
+            "account": self._entry.data.get(CONF_PHONE),
             "pickup_point": self._pp,
-            "address": _format_pp_address(addr, with_postcode=True),
+            "address": format_pp_address(addr, with_postcode=True),
             "city": addr.get("city"),
             "street": addr.get("street"),
             "post_code": addr.get("postCode"),

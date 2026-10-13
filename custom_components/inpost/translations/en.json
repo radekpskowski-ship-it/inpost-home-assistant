@@ -15,7 +15,10 @@
           "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
           "notify_service": "Notify service (e.g. notify.mobile_app_pixel_8)",
-          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this"
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
+          "update_interval_min": "Poll InPost every (min)",
+          "expose_codes": "Expose pickup codes (entity attributes, QR name and events)",
+          "ignored_senders": "Ignored senders (name fragments, comma separated)"
         }
       },
       "reauth_confirm": {
@@ -43,12 +46,15 @@
     "step": {
       "init": {
         "title": "InPost - options",
-        "description": "Phones (from HA Companion) and push notification settings.",
+        "description": "Companion app phones, push notifications, polling interval and pickup codes. The pickup code opens the locker and entity attributes are stored in the recorder database - expose it only if you need it. The QR code on the card works regardless of this option.",
         "data": {
           "device_trackers": "Phones (you can pick several - distance taken to whichever phone is closest)",
           "notify_distance_m": "Notify when parcel is closer than (m) [0 = disabled]",
           "notify_service": "Notify service (e.g. notify.mobile_app_pixel_8)",
-          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this"
+          "notify_cooldown_hours": "Per-parcel cooldown (hours) - do not notify more often than this",
+          "update_interval_min": "Poll InPost every (min)",
+          "expose_codes": "Expose pickup codes (entity attributes, QR name and events)",
+          "ignored_senders": "Ignored senders (name fragments, comma separated)"
         }
       }
     }

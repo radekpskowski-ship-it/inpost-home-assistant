@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from pathlib import Path
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
@@ -13,6 +16,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CARD_URL,
     CONF_DEVICE_TRACKER,
     CONF_DEVICE_TRACKERS,
     CONF_NOTIFY_COOLDOWN_HOURS,
@@ -25,13 +29,15 @@ from .const import (
     DOMAIN,
     STORAGE_KEY_NOTIFY,
     STORAGE_VERSION,
-    is_sender_ignored,
+    VERSION,
 )
 from .coordinator import InpostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT]
+
+_CARD_REGISTERED = f"{DOMAIN}_card"
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -153,8 +159,6 @@ class InpostNotifier:
         dirty = False
 
         for p in self.coord.pickup_parcels:
-            if is_sender_ignored((p.get("sender") or {}).get("name")):
-                continue
             sn = p.get("shipmentNumber") or p.get("id")
             if not sn:
                 continue
@@ -228,7 +232,24 @@ class InpostNotifier:
         await self._async_save()
 
 
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Podaj karte Lovelace (inpost-qr-card), zeby byla do wybrania z listy "Dodaj karte".
+
+    Serwujemy plik JS spod wlasnej sciezki i dopisujemy go do modulow frontendu.
+    Rejestracja jest raz na instancje HA - drugie konto nie ma czego rejestrowac.
+    """
+    if hass.data.get(_CARD_REGISTERED):
+        return
+    hass.data[_CARD_REGISTERED] = True
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(CARD_URL, str(Path(__file__).parent / "www" / "inpost-qr-card.js"), False)
+    ])
+    # wersja w adresie lamie cache przegladarki po aktualizacji integracji
+    frontend.add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    await _async_register_card(hass)
     coordinator = InpostCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
@@ -238,6 +259,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
         "notifier": notifier,
+        "options": dict(entry.options),
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -247,7 +269,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload entry gdy uzytkownik zmieni opcje (UI -> Konfiguruj)."""
+    """Reload entry gdy uzytkownik zmieni opcje (UI -> Konfiguruj).
+
+    Listener odpala sie tez przy zmianie `entry.data`, czyli po KAZDYM odswiezeniu
+    tokena (co ~2 h) - wtedy NIE przeladowujemy, bo reload kasowalby stan encji.
+    """
+    runtime = (hass.data.get(DOMAIN) or {}).get(entry.entry_id)
+    if runtime is not None and runtime.get("options") == dict(entry.options):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

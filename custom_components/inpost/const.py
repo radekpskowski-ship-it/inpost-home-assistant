@@ -2,6 +2,9 @@
 import re
 
 DOMAIN = "inpost"
+VERSION = "0.16.0"  # trzymaj zgodnie z manifest.json - leci do URL-a karty jako cache-buster
+# Wlasna karta Lovelace serwowana przez integracje (do wybrania z listy "Dodaj karte").
+CARD_URL = "/inpost/inpost-qr-card.js"
 CONF_PHONE = "phone_number"
 CONF_AUTH_TOKEN = "auth_token"
 CONF_REFRESH_TOKEN = "refresh_token"
@@ -18,6 +21,9 @@ CONF_DEVICE_TRACKERS = "device_trackers"          # lista device_tracker entity_
 CONF_NOTIFY_SERVICE = "notify_service"            # pojedynczy serwis 'notify.<x>'
 CONF_NOTIFY_DISTANCE_M = "notify_distance_m"
 CONF_NOTIFY_COOLDOWN_HOURS = "notify_cooldown_hours"
+CONF_UPDATE_INTERVAL = "update_interval_min"      # co ile minut odpytujemy API
+CONF_EXPOSE_CODES = "expose_codes"                # kod odbioru w atrybutach/nazwach encji
+CONF_IGNORED_SENDERS = "ignored_senders"          # dodatkowi ignorowani nadawcy (CSV)
 
 DEFAULT_DEVICE_TRACKERS: list[str] = []
 DEFAULT_NOTIFY_SERVICE = ""
@@ -32,7 +38,21 @@ AUTOREMOVE_GRACE_TICKS = 2
 STORAGE_VERSION = 1
 STORAGE_KEY_NOTIFY = "inpost_notify"
 
-UPDATE_INTERVAL_MIN = 15  # co ile minut odpytujemy API
+UPDATE_INTERVAL_MIN = 15  # domyslnie co ile minut odpytujemy API (opcja CONF_UPDATE_INTERVAL)
+# Kod odbioru otwiera skrytke, a atrybuty encji laduja w bazie recordera - domyslnie nie publikujemy.
+DEFAULT_EXPOSE_CODES = False
+
+# Zdarzenia (encje event.* + szyna zdarzen HA)
+STORAGE_KEY_EVENTS = "inpost_events"
+EVENT_BUS_PARCEL = "inpost_parcel_event"
+EVENT_BUS_NOTIFICATION = "inpost_notification"
+EVENT_NEW_PARCEL = "new_parcel"
+EVENT_READY_TO_PICKUP = "ready_to_pickup"
+EVENT_DELIVERED = "delivered"
+EVENT_STATUS_CHANGED = "status_changed"
+PARCEL_EVENT_TYPES = [EVENT_NEW_PARCEL, EVENT_READY_TO_PICKUP, EVENT_DELIVERED, EVENT_STATUS_CHANGED]
+EVENT_NOTIFICATION = "notification"
+MAX_SEEN_NOTIFICATIONS = 200
 
 # Po nieudanym pollu (rate-limit / timeout / blad API) encje statyczne NIE ida od razu
 # w 'unavailable' - DataUpdateCoordinator zachowuje ostatnie dane. Dopiero gdy API milczy
@@ -67,6 +87,13 @@ TERMINAL_STATUSES = {
 RECENT_PICKUP_STATUSES = {
     "DELIVERED",
     "PICKED_UP",
+}
+
+# Zwroty - nie licza sie jako "w drodze do Ciebie".
+RETURN_STATUSES = {
+    "RETURNED_TO_SENDER",
+    "RETURNED_TO_SOURCE_BRANCH",
+    "RETURN_PICKUP_CONFIRMATION_TO_SENDER",
 }
 POST_PICKUP_VISIBILITY_HOURS = 12
 
@@ -256,5 +283,6 @@ ENDPOINT_TOKEN = "/global/oauth2/token"
 ENDPOINT_ME = "/global/api/v1/user-catalogue/people/me"
 ENDPOINT_TRACKED = "/v4/parcels/tracked"
 ENDPOINT_TRACKED_LEGACY = "/v3/parcels/tracked"
+ENDPOINT_NOTIFICATIONS = "/v3/notifications?type=PUSH,SYNERISE"
 APP_ID = "pl.inpost.inpostmobile"
 USER_AGENT = "InPost-Mobile/4.19.0 (4)-release (iOS 26.7; iPhone14,3; pl)"

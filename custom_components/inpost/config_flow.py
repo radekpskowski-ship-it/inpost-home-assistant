@@ -18,17 +18,22 @@ from .const import (
     CONF_DEVICE_TRACKER,
     CONF_DEVICE_TRACKERS,
     CONF_DEVICE_UID,
+    CONF_EXPOSE_CODES,
+    CONF_IGNORED_SENDERS,
     CONF_NOTIFY_COOLDOWN_HOURS,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
     CONF_PHONE,
     CONF_REFRESH_TOKEN,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_UPDATE_INTERVAL,
     DEFAULT_DEVICE_TRACKERS,
+    DEFAULT_EXPOSE_CODES,
     DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_DISTANCE_M,
     DEFAULT_NOTIFY_SERVICE,
     DOMAIN,
+    UPDATE_INTERVAL_MIN,
     normalize_phone,
 )
 
@@ -103,6 +108,25 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                     unit_of_measurement="h", mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            vol.Optional(
+                CONF_UPDATE_INTERVAL,
+                default=current.get(CONF_UPDATE_INTERVAL, UPDATE_INTERVAL_MIN),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=2, max=60, step=1,
+                    unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_EXPOSE_CODES,
+                default=current.get(CONF_EXPOSE_CODES, DEFAULT_EXPOSE_CODES),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_IGNORED_SENDERS,
+                description={"suggested_value": current.get(CONF_IGNORED_SENDERS, "")},
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=False)
+            ),
         }
     )
 
@@ -114,6 +138,15 @@ def _normalize_options(d: dict[str, Any]) -> dict[str, Any]:
             d[CONF_NOTIFY_COOLDOWN_HOURS] = int(d[CONF_NOTIFY_COOLDOWN_HOURS])
         except (TypeError, ValueError):
             pass
+    if d.get(CONF_UPDATE_INTERVAL) is not None:
+        try:
+            d[CONF_UPDATE_INTERVAL] = int(d[CONF_UPDATE_INTERVAL])
+        except (TypeError, ValueError):
+            d.pop(CONF_UPDATE_INTERVAL, None)
+    if CONF_IGNORED_SENDERS in d:
+        d[CONF_IGNORED_SENDERS] = ", ".join(
+            x.strip() for x in str(d[CONF_IGNORED_SENDERS] or "").split(",") if x.strip()
+        )
     if CONF_NOTIFY_DISTANCE_M in d and d[CONF_NOTIFY_DISTANCE_M] is not None:
         try:
             d[CONF_NOTIFY_DISTANCE_M] = int(d[CONF_NOTIFY_DISTANCE_M])
@@ -153,7 +186,7 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> "InpostOptionsFlow":
-        return InpostOptionsFlow(config_entry)
+        return InpostOptionsFlow()
 
     def _match(self, pasted: str) -> tuple[InpostLogin, str]:
         """Znajdz probe logowania, z ktorej pochodzi wklejony adres."""
@@ -283,10 +316,11 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class InpostOptionsFlow(config_entries.OptionsFlow):
-    """Options flow: telefony do liczenia dystansu, prog powiadomien, serwis notify, cooldown."""
+    """Options flow: telefony do dystansu, powiadomienia, interwal, kody odbioru, ignorowani nadawcy.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+    `self.config_entry` podstawia Home Assistant (>= 2024.11) - wlasny __init__ z przypisaniem
+    wywala AttributeError na nowych wersjach.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:

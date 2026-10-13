@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-13
+
+### Added
+- **Karta Lovelace `custom:inpost-qr-card`** serwowana przez integrację (do wybrania z listy
+  „Dodaj kartę"): paczki czekające w paczkomacie z kodem QR (tap = pełny ekran), adresem,
+  odliczaniem do terminu odbioru, opcjonalnie kodem odbioru; pod spodem paczki w drodze.
+- Sensory `Paczki w drodze` i `Termin odbioru` (timestamp najbliższego terminu).
+- Encje zdarzeń `event.inpost_paczka` (`new_parcel`, `ready_to_pickup`, `delivered`,
+  `status_changed`) i `event.inpost_powiadomienie` (powiadomienia z apki, `/v3/notifications`)
+  oraz zdarzenia na szynie HA `inpost_parcel_event` / `inpost_notification`. Stan jest
+  pamiętany między restartami — restart nie powtarza starych zdarzeń.
+- Opcje: częstotliwość odpytywania, „Publikuj kody odbioru", dodatkowi ignorowani nadawcy.
+- Blueprint `blueprints/automation/inpost/przypomnienie_o_terminie.yaml`.
+- Atrybuty `nearest_shipment_number`, `nearest_address`, `latitude`, `longitude` na sensorze dystansu.
+
+### Changed
+- **Stałe `entity_id`**: `sensor.inpost_paczka_<numer>`, `sensor.inpost_paczkomat_<kod>`,
+  `image.inpost_qr_<numer>` (wcześniej od nadawcy/adresu, zmieniały się przy restarcie).
+  Istniejące encje są przemianowywane w rejestrze; encje nie są już kasowane przy starcie.
+- **Kod odbioru domyślnie niepublikowany**: `open_code` / `qr_code` w atrybutach i kod w nazwie
+  encji QR tylko po włączeniu opcji. Sam obraz QR działa zawsze.
+- **QR tylko w pamięci** — PNG nie leży już w `/config/www/inpost/` (publiczne `/local/`);
+  stare pliki są usuwane przy starcie.
+- Licznik „Paczki do odbioru" liczy tylko paczki konta-odbiorcy (bez współdzielonych z innego
+  dodanego konta) i nie jest już encją diagnostyczną.
+- Minimalna wersja Home Assistant: 2024.11.
+
+### Fixed
+- Okno „Konfiguruj" wywalało się na nowych wersjach HA (`config_entry has no setter`).
+- Odświeżenie tokenu przeładowywało całą integrację (co ~2 h); teraz reload tylko po zmianie opcji.
+- Konto czekające na ponowne logowanie nie „zabiera" już paczek współdzielonych.
+
+### Removed
+- Atrybuty `references`, `estimated_delivery_date`, `courier_phone_number` (nie występują w `/v4`).
+
 ## [0.15.0] - 2026-10-13
 
 ### Changed

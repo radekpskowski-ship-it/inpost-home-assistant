@@ -23,6 +23,7 @@ from .const import (
     API_BASE,
     APP_ID,
     ENDPOINT_ME,
+    ENDPOINT_NOTIFICATIONS,
     ENDPOINT_TOKEN,
     ENDPOINT_TRACKED,
     ENDPOINT_TRACKED_LEGACY,
@@ -314,6 +315,12 @@ class InpostClient:
             if isinstance(p.get("status"), str):
                 p["status"] = p["status"].upper()
         return parcels
+
+    async def get_notifications(self) -> list[dict]:
+        """Powiadomienia, ktore apka pokazuje w swojej skrzynce (i wysyla jako push)."""
+        data = await self._get(ENDPOINT_NOTIFICATIONS)
+        items = data.get("notifications") if isinstance(data, dict) else None
+        return [n for n in (items or []) if isinstance(n, dict)]
 
     async def get_me(self) -> dict[str, Any]:
         """Profil konta - do rozpoznania, na ktory numer sie zalogowano."""

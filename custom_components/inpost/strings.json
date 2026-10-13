@@ -15,7 +15,10 @@
           "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
           "notify_service": "Serwis notify (np. notify.mobile_app_pixel_8)",
-          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej"
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
+          "update_interval_min": "Odpytuj InPost co (min)",
+          "expose_codes": "Publikuj kody odbioru (w atrybutach encji, nazwie QR i zdarzeniach)",
+          "ignored_senders": "Ignorowani nadawcy (fragmenty nazw po przecinku)"
         }
       },
       "reauth_confirm": {
@@ -43,12 +46,15 @@
     "step": {
       "init": {
         "title": "InPost - opcje",
-        "description": "Telefony z aplikacji HA Companion oraz konfiguracja powiadomien push.",
+        "description": "Telefony z aplikacji HA Companion, powiadomienia push, czestotliwosc odpytywania i kody odbioru. Kod odbioru otwiera skrytke, a atrybuty encji trafiaja do bazy recordera - wlacz publikowanie tylko jesli go potrzebujesz. Kod QR na karcie dziala niezaleznie od tej opcji.",
         "data": {
           "device_trackers": "Telefony (mozna wybrac kilka - dystans liczony do najblizszego z tych telefonow)",
           "notify_distance_m": "Powiadom gdy paczka blizej niz (m) [0 = wylacz]",
           "notify_service": "Serwis notify (np. notify.mobile_app_pixel_8)",
-          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej"
+          "notify_cooldown_hours": "Cooldown na paczke (godziny) - nie powiadamiaj czesciej",
+          "update_interval_min": "Odpytuj InPost co (min)",
+          "expose_codes": "Publikuj kody odbioru (w atrybutach encji, nazwie QR i zdarzeniach)",
+          "ignored_senders": "Ignorowani nadawcy (fragmenty nazw po przecinku)"
         }
       }
     }

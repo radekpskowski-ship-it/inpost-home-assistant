@@ -1,0 +1,55 @@
+blueprint:
+  name: "InPost: przypomnienie przed terminem odbioru"
+  description: >-
+    Wysyła powiadomienie, gdy do końca terminu odbioru paczki czekającej w paczkomacie
+    zostało mniej niż wybrana liczba godzin. Korzysta z sensora „Termin odbioru"
+    integracji InPost (paczki).
+  domain: automation
+  input:
+    deadline_sensor:
+      name: Sensor terminu odbioru
+      selector:
+        entity:
+          filter:
+            - integration: inpost
+              domain: sensor
+              device_class: timestamp
+    hours_before:
+      name: Ile godzin przed terminem
+      default: 6
+      selector:
+        number:
+          min: 1
+          max: 48
+          unit_of_measurement: h
+    notify_action:
+      name: Akcja powiadomienia
+      description: Dostępne zmienne - `nadawca`, `adres`, `paczkomat`, `termin`.
+      default: []
+      selector:
+        action: {}
+
+mode: single
+
+variables:
+  deadline_sensor: !input deadline_sensor
+  hours_before: !input hours_before
+  nadawca: "{{ state_attr(deadline_sensor, 'sender') }}"
+  adres: "{{ state_attr(deadline_sensor, 'address') }}"
+  paczkomat: "{{ state_attr(deadline_sensor, 'pickup_point') }}"
+  termin: "{{ as_timestamp(states(deadline_sensor)) | timestamp_custom('%d.%m %H:%M') }}"
+
+trigger_variables:
+  t_sensor: !input deadline_sensor
+  t_hours: !input hours_before
+
+trigger:
+  - platform: template
+    value_template: >-
+      {% set t = as_datetime(states(t_sensor), none) %}
+      {{ t is not none and now() >= t - timedelta(hours=t_hours | int(6)) and now() < t }}
+
+action:
+  - choose:
+      - conditions: "{{ true }}"
+        sequence: !input notify_action
