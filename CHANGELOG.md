@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-13
+
+### Changed
+- **Logowanie przez OAuth2 + PKCE.** InPost wylaczyl `/v1/sendSMSCode`, `/v1/confirmSMSCode`
+  i `/v1/authenticate` (HTTP 404 od 12.10.2026), przez co wszystkie konta wpadaly w
+  "wymagane ponowne uwierzytelnienie", a reauth SMS-em nie dzialal. Teraz logowanie odbywa
+  sie na stronie InPostu w przegladarce (SMS + captcha), a do HA wkleja sie adres zwrotny
+  `https://account.inpost-group.com/callback?code=...`.
+- Odswiezanie tokenu przez `/global/oauth2/token` (rotowany refresh token, odswiezanie przed
+  wygasnieciem). Blad sieci przy odswiezaniu nie wymusza juz ponownego logowania.
+- Paczki z `/v4/parcels/tracked` (fallback na `/v3` przy 404); nowe naglowki apki
+  (`x-app-id`, `device-uid`).
+- Reauth sprawdza, czy zalogowano sie na ten sam numer co wpis (blad `wrong_account`).
+
+### Migration
+- Istniejace wpisy wymagaja jednorazowego ponownego logowania (Ustawienia -> Urzadzenia
+  i uslugi -> InPost -> "Uwierzytelnij ponownie"). Encje i opcje zostaja.
+
 ## [0.14.1] - 2026-06-13
 
 ### Fixed

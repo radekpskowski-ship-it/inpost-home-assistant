@@ -2,17 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "InPost - sign in",
-        "description": "Enter the phone number from your InPost account (9 digits, no country code). We will send an SMS code.",
+        "title": "InPost - login",
+        "description": "1. Open the [InPost login page]({login_url}) in a browser.\n2. Log in with the phone number of your InPost account (SMS + captcha).\n3. After login the browser lands on an address starting with `https://account.inpost-group.com/callback?code=...` (the page may be blank or show an error - that is expected).\n4. Copy the WHOLE address from the address bar and paste it below.",
         "data": {
-          "phone_number": "Phone number"
-        }
-      },
-      "sms": {
-        "title": "InPost - SMS code",
-        "description": "Enter the 6-digit SMS code sent to +48 {phone}.",
-        "data": {
-          "sms_code": "SMS code"
+          "callback_url": "Address the browser landed on"
         }
       },
       "setup_options": {
@@ -26,16 +19,20 @@
         }
       },
       "reauth_confirm": {
-        "title": "InPost - re-authentication",
-        "description": "The session expired. We sent a new SMS - enter the code.",
+        "title": "InPost - re-login ({phone})",
+        "description": "The session expired or InPost changed its login method.\n\n1. Open the [InPost login page]({login_url}) in a browser.\n2. Log in with the phone number **{phone}** (SMS + captcha).\n3. After login the browser lands on an address starting with `https://account.inpost-group.com/callback?code=...` (the page may be blank or show an error - that is expected).\n4. Copy the WHOLE address from the address bar and paste it below.",
         "data": {
-          "sms_code": "SMS code"
+          "callback_url": "Address the browser landed on"
         }
       }
     },
     "error": {
-      "cannot_send_sms": "Could not send the SMS - check the phone number.",
-      "wrong_code": "Invalid or expired SMS code. Try again."
+      "invalid_callback": "This does not look like a login callback address (no `code=`) or it comes from an older attempt. Paste the whole address from the browser.",
+      "sms_code": "That is the SMS code - enter it on the InPost page, then paste the address the browser lands on here.",
+      "invalid_auth": "InPost rejected the login code (used or expired). Open the link again and log in once more.",
+      "cannot_connect": "Could not connect to InPost. Try again.",
+      "cannot_identify": "Logged in, but the account phone number could not be determined.",
+      "wrong_account": "You logged in with a different number than this entry. Log out on the InPost page and use the right number."
     },
     "abort": {
       "already_configured": "An account with this phone number is already configured.",

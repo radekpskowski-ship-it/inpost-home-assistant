@@ -6,8 +6,8 @@ Home Assistant custom integration for **InPost parcel lockers (paczkomaty)** —
 
 ## Features
 
-- Logs in via SMS (the same flow as the InPost mobile app — phone number → SMS code).
-- Auto-refreshes the session token; reauth via SMS when refresh fails.
+- Logs in via InPost's OAuth2 + PKCE page in your browser (phone number → SMS → captcha), then you paste the callback address into Home Assistant.
+- Auto-refreshes the session token; reauth via the same browser login when refresh fails.
 - Sensors:
   - **`sensor.paczki_do_odbioru`** — number of parcels ready for pickup. Attribute: `parcels` (list of shipment numbers).
   - **`sensor.najblizsza_paczka_dystans`** — distance in metres from a chosen `device_tracker` to the nearest locker holding a parcel. Attributes: nearest pickup point name + shipment number.
@@ -38,9 +38,9 @@ Home Assistant custom integration for **InPost parcel lockers (paczkomaty)** —
 ## Configuration
 
 1. Click **Add Integration → InPost**.
-2. Enter the phone number from your InPost account (9 digits, no `+48`).
-3. Wait for the SMS — same SMS as on the InPost mobile app.
-4. Enter the 6-digit code.
+2. Open the InPost login link shown in the dialog and log in (phone number → SMS → captcha).
+3. The browser lands on `https://account.inpost-group.com/callback?code=...` (blank/error page is expected).
+4. Copy the whole address from the address bar and paste it into Home Assistant.
 
 Done — sensors are created automatically.
 
@@ -74,7 +74,7 @@ Add the integration multiple times — once per phone number. Each entry gets it
 >
 > Używasz na **własne ryzyko**:
 > - InPost może w każdej chwili zerwać sesję, zmienić API lub zablokować konto.
-> - Spoofowany User-Agent + endpointy `/v1/sendSMSCode`, `/v1/confirmSMSCode`, `/v3/parcels/tracked` mogą naruszać regulamin usługi.
+> - Spoofowany User-Agent + endpointy `/global/oauth2/token`, `/v4/parcels/tracked` mogą naruszać regulamin usługi.
 > - Autorzy nie ponoszą odpowiedzialności za utratę dostępu do konta InPost ani za skutki używania tej integracji.
 > - Tokeny `authToken` / `refreshToken` są zapisane w `.storage/core.config_entries` w plaintext — **nie commituj snapshotów konfiguracji HA do publicznych repo**.
 >

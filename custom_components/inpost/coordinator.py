@@ -22,8 +22,10 @@ from .const import (
     BOOST_INTERVAL_MIN,
     BOOST_MAX_MIN,
     CONF_AUTH_TOKEN,
+    CONF_DEVICE_UID,
     CONF_PHONE,
     CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
     PICKUP_STATUSES,
     RECENT_PICKUP_STATUSES,
@@ -52,8 +54,13 @@ class InpostCoordinator(DataUpdateCoordinator[list[dict]]):
         self._boost_interval = timedelta(minutes=BOOST_INTERVAL_MIN)
 
         @callback
-        def _on_tokens(auth: str, refresh: str) -> None:
-            new_data = {**entry.data, CONF_AUTH_TOKEN: auth, CONF_REFRESH_TOKEN: refresh}
+        def _on_tokens(auth: str, refresh: str, expires_at: float) -> None:
+            new_data = {
+                **entry.data,
+                CONF_AUTH_TOKEN: auth,
+                CONF_REFRESH_TOKEN: refresh,
+                CONF_TOKEN_EXPIRES_AT: expires_at,
+            }
             hass.config_entries.async_update_entry(entry, data=new_data)
 
         self.client = InpostClient(
@@ -61,6 +68,8 @@ class InpostCoordinator(DataUpdateCoordinator[list[dict]]):
             auth_token=entry.data[CONF_AUTH_TOKEN],
             refresh_token=entry.data[CONF_REFRESH_TOKEN],
             session=self._session,
+            device_uid=entry.data.get(CONF_DEVICE_UID),
+            expires_at=entry.data.get(CONF_TOKEN_EXPIRES_AT),
             on_tokens_updated=_on_tokens,
         )
 

@@ -5,6 +5,8 @@ DOMAIN = "inpost"
 CONF_PHONE = "phone_number"
 CONF_AUTH_TOKEN = "auth_token"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_DEVICE_UID = "device_uid"
+CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 
 # --- options flow ---
 # Stare klucze - zachowane dla backwards compat (czytane jako fallback w setup_options).
@@ -243,4 +245,16 @@ def canonicalize_sender(raw_sender: str | None) -> str:
     return s
 
 API_BASE = "https://api-inmobile-pl.easypack24.net"
-USER_AGENT = "InPost-Mobile/3.27.2 (Android 14; SDK 34) okhttp/4.11.0"
+# Od 10.2026 InPost loguje przez OAuth2 authorization code + PKCE na swoich stronach
+# (telefon -> SMS -> captcha). Stare /v1/sendSMSCode, /v1/confirmSMSCode i /v1/authenticate
+# zwracaja 404. Captchy nie da sie przejsc z HA, wiec user loguje sie w przegladarce
+# i wkleja adres, na ktorym wyladowal.
+OAUTH_AUTHORIZE_URL = "https://account.inpost-group.com/oauth2/authorize"
+OAUTH_REDIRECT_URI = "https://account.inpost-group.com/callback"
+OAUTH_CLIENT_ID = "inpost-mobile"
+ENDPOINT_TOKEN = "/global/oauth2/token"
+ENDPOINT_ME = "/global/api/v1/user-catalogue/people/me"
+ENDPOINT_TRACKED = "/v4/parcels/tracked"
+ENDPOINT_TRACKED_LEGACY = "/v3/parcels/tracked"
+APP_ID = "pl.inpost.inpostmobile"
+USER_AGENT = "InPost-Mobile/4.19.0 (4)-release (iOS 26.7; iPhone14,3; pl)"

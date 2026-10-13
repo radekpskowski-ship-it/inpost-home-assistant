@@ -1,7 +1,8 @@
-"""Config flow dla integracji InPost (telefon + SMS + opcje)."""
+"""Config flow dla integracji InPost (logowanie w przegladarce + opcje)."""
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -11,27 +12,30 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import confirm_sms_code, send_sms_code
+from .api import InpostClient, InpostLogin, ReAuthRequired, phone_from_profile, phone_from_token
 from .const import (
     CONF_AUTH_TOKEN,
     CONF_DEVICE_TRACKER,
     CONF_DEVICE_TRACKERS,
+    CONF_DEVICE_UID,
     CONF_NOTIFY_COOLDOWN_HOURS,
     CONF_NOTIFY_DISTANCE_M,
     CONF_NOTIFY_SERVICE,
     CONF_PHONE,
     CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
     DEFAULT_DEVICE_TRACKERS,
     DEFAULT_NOTIFY_COOLDOWN_HOURS,
     DEFAULT_NOTIFY_DISTANCE_M,
     DEFAULT_NOTIFY_SERVICE,
     DOMAIN,
+    normalize_phone,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PHONE_SCHEMA = vol.Schema({vol.Required(CONF_PHONE): str})
-CODE_SCHEMA = vol.Schema({vol.Required("sms_code"): str})
+CONF_CALLBACK = "callback_url"
+CALLBACK_SCHEMA = vol.Schema({vol.Required(CONF_CALLBACK): selector.TextSelector()})
 
 
 def _resolve_default_trackers(current: dict[str, Any]) -> list[str]:
@@ -137,7 +141,12 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._phone: str | None = None
-        self._tokens: dict[str, Any] | None = None
+        self._data: dict[str, Any] | None = None
+        # Wszystkie linki pokazane w tym oknie zostaja wazne: logowanie w przegladarce
+        # trwa (SMS, captcha), a w miedzyczasie formularz mogl dostac nowy link.
+        self._logins = [InpostLogin()]
+        # Jeden device-uid na wpis, staly: API wiaze z nim sesje.
+        self._device_uid = str(uuid.uuid4())
 
     @staticmethod
     @callback
@@ -146,62 +155,86 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> "InpostOptionsFlow":
         return InpostOptionsFlow(config_entry)
 
+    def _match(self, pasted: str) -> tuple[InpostLogin, str]:
+        """Znajdz probe logowania, z ktorej pochodzi wklejony adres."""
+        for login in reversed(self._logins):
+            try:
+                return login, login.extract_code(pasted)
+            except ValueError as err:
+                if str(err) != "state":
+                    raise
+        raise ValueError("state")
+
+    async def _async_login(self, pasted: str) -> tuple[dict[str, Any] | None, str | None]:
+        """Wymien wklejony adres na tokeny. Zwraca (data wpisu, None) albo (None, klucz bledu)."""
+        try:
+            login, code = self._match(pasted)
+        except ValueError as err:
+            return None, "sms_code" if str(err) == "sms" else "invalid_callback"
+
+        session = async_get_clientsession(self.hass)
+        try:
+            tokens = await login.async_exchange(session, self._device_uid, code)
+        except ReAuthRequired:
+            error = "invalid_auth"
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("InPost: wymiana kodu na tokeny nie powiodla sie")
+            error = "cannot_connect"
+        else:
+            phone = phone_from_token(tokens["access_token"])
+            if not phone:
+                client = InpostClient(
+                    "", tokens["access_token"], tokens["refresh_token"], session,
+                    device_uid=self._device_uid, expires_at=tokens["expires_at"],
+                )
+                try:
+                    phone = phone_from_profile(await client.get_me())
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("InPost: nie udalo sie pobrac profilu konta", exc_info=True)
+            return {
+                CONF_PHONE: phone,
+                CONF_AUTH_TOKEN: tokens["access_token"],
+                CONF_REFRESH_TOKEN: tokens["refresh_token"],
+                CONF_TOKEN_EXPIRES_AT: tokens["expires_at"],
+                CONF_DEVICE_UID: self._device_uid,
+            }, None
+        # Kod jednorazowy jest spalony - nastepna proba potrzebuje nowego linku.
+        self._logins.append(InpostLogin())
+        return None, error
+
+    def _login_form(self, step_id: str, errors: dict[str, str], phone: str = ""):
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=CALLBACK_SCHEMA,
+            errors=errors,
+            description_placeholders={"login_url": self._logins[-1].url, "phone": phone},
+        )
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
-            phone = user_input[CONF_PHONE].strip().replace("+48", "").replace(" ", "")
-            await self.async_set_unique_id(phone)
-            self._abort_if_unique_id_configured()
-
-            session = async_get_clientsession(self.hass)
-            try:
-                ok = await send_sms_code(session, phone)
-            except Exception:
-                _LOGGER.exception("send_sms_code error")
-                ok = False
-            if not ok:
-                errors["base"] = "cannot_send_sms"
+            data, error = await self._async_login(user_input[CONF_CALLBACK])
+            if error:
+                errors["base"] = error
+            elif not data[CONF_PHONE]:
+                errors["base"] = "cannot_identify"
+                self._logins.append(InpostLogin())
             else:
-                self._phone = phone
-                return await self.async_step_sms()
-
-        return self.async_show_form(
-            step_id="user", data_schema=PHONE_SCHEMA, errors=errors,
-            description_placeholders={"info": "Numer telefonu z konta InPost (9 cyfr, bez +48)"}
-        )
-
-    async def async_step_sms(self, user_input: dict[str, Any] | None = None):
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            code = user_input["sms_code"].strip()
-            session = async_get_clientsession(self.hass)
-            try:
-                tokens = await confirm_sms_code(session, self._phone, code)
-            except Exception:
-                _LOGGER.exception("confirm_sms_code error")
-                tokens = None
-            if not tokens:
-                errors["base"] = "wrong_code"
-            else:
-                self._tokens = tokens
+                await self.async_set_unique_id(data[CONF_PHONE])
+                self._abort_if_unique_id_configured()
+                self._phone = data[CONF_PHONE]
+                self._data = data
                 return await self.async_step_setup_options()
 
-        return self.async_show_form(
-            step_id="sms", data_schema=CODE_SCHEMA, errors=errors,
-            description_placeholders={"phone": f"+48 {self._phone}"}
-        )
+        return self._login_form("user", errors)
 
     async def async_step_setup_options(self, user_input: dict[str, Any] | None = None):
-        """Trzeci krok dodawania: telefon do dystansu + powiadomienia (wszystko opcjonalne)."""
+        """Drugi krok dodawania: telefon do dystansu + powiadomienia (wszystko opcjonalne)."""
         if user_input is not None:
             options = _normalize_options(dict(user_input))
             return self.async_create_entry(
                 title=f"InPost +48 {self._phone}",
-                data={
-                    CONF_PHONE: self._phone,
-                    CONF_AUTH_TOKEN: self._tokens["authToken"],
-                    CONF_REFRESH_TOKEN: self._tokens["refreshToken"],
-                },
+                data=self._data,
                 options=options,
             )
 
@@ -224,34 +257,29 @@ class InpostConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # konkretny entry odzyskujemy przez context["entry_id"], nie po telefonie
         entry_id = self.context.get("entry_id")
         entry = self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
+        phone = f"+48 {self._phone}"
 
-        if user_input is None:
-            session = async_get_clientsession(self.hass)
-            await send_sms_code(session, self._phone)
-            return self.async_show_form(step_id="reauth_confirm", data_schema=CODE_SCHEMA)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, error = await self._async_login(user_input[CONF_CALLBACK])
+            if error:
+                errors["base"] = error
+            elif data[CONF_PHONE] and normalize_phone(data[CONF_PHONE]) != normalize_phone(self._phone):
+                # zalogowano sie na inne konto (np. drugi numer w domu) - nie podmieniamy tokenow
+                errors["base"] = "wrong_account"
+                self._logins.append(InpostLogin())
+            elif entry is None:
+                return self.async_abort(reason="reauth_successful")
+            else:
+                if not data[CONF_PHONE]:
+                    _LOGGER.warning("InPost: nie udalo sie potwierdzic numeru konta po logowaniu")
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data={**entry.data, **data, CONF_PHONE: entry.data[CONF_PHONE]},
+                    reason="reauth_successful",
+                )
 
-        session = async_get_clientsession(self.hass)
-        tokens = await confirm_sms_code(
-            session, self._phone, user_input["sms_code"].strip()
-        )
-        if not tokens:
-            return self.async_show_form(
-                step_id="reauth_confirm", data_schema=CODE_SCHEMA,
-                errors={"base": "wrong_code"},
-            )
-
-        if entry is None:
-            return self.async_abort(reason="reauth_successful")
-
-        return self.async_update_reload_and_abort(
-            entry,
-            data={
-                **entry.data,
-                CONF_AUTH_TOKEN: tokens["authToken"],
-                CONF_REFRESH_TOKEN: tokens["refreshToken"],
-            },
-            reason="reauth_successful",
-        )
+        return self._login_form("reauth_confirm", errors, phone)
 
 
 class InpostOptionsFlow(config_entries.OptionsFlow):
