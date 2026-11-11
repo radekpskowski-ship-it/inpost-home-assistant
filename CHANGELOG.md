@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Atrybuty `multi_compartment` (surowy obiekt z API) i `multi_compartment_uuid` na sensorze
+  paczki. MultiSkrytka: paczki z tym samym `uuid` leżą w JEDNEJ skrytce, którą otwiera dowolny
+  z ich kodów odbioru, więc po uuid można je zgrupować w szablonie albo na karcie i pokazać
+  jeden kod zamiast kilku. `shipmentNumbers` API podaje zwykle tylko przy jednej paczce
+  z grupy, dlatego do grupowania służy uuid, nie ta lista. `multi_compartment_uuid` trafia też
+  do listy `parcels` na sensorze paczkomatu i do payloadu zdarzeń paczkowych
+  (`event.inpost_paczka` / `inpost_parcel_event`).
+
 ## [0.16.0] - 2026-10-13
 
 ### Added

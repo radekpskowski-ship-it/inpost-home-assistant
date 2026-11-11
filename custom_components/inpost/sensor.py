@@ -55,7 +55,13 @@ from .const import (
     canonicalize_sender,
 )
 
-from .coordinator import InpostCoordinator, format_pp_address, parcel_belongs_to_entry, parcel_sn
+from .coordinator import (
+    InpostCoordinator,
+    format_pp_address,
+    multi_compartment_uuid,
+    parcel_belongs_to_entry,
+    parcel_sn,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -524,6 +530,11 @@ class InpostParcelSensor(InpostBase):
             "shipment_type": d.get("shipmentType"),
             "pickup_date": d.get("pickUpDate"),
             "can_collect": ops.get("collect"),
+            # MultiSkrytka: paczki z tym samym uuid leza w JEDNEJ skrytce i otwiera je
+            # dowolny z ich kodow odbioru. `shipmentNumbers` API podaje zwykle tylko przy
+            # jednej paczce z grupy, wiec do grupowania w szablonach i kartach sluzy uuid.
+            "multi_compartment": d.get("multiCompartment"),
+            "multi_compartment_uuid": multi_compartment_uuid(d),
             "pickup_point": pp.get("name"),
             "address": format_pp_address(addr, with_postcode=True),
             "city": addr.get("city"),
@@ -611,6 +622,7 @@ class InpostPickupPointSensor(InpostBase):
                 "expiry_date": p.get("expiryDate"),
                 "stored_date": p.get("storedDate"),
                 "status_raw": p.get("status"),
+                "multi_compartment_uuid": multi_compartment_uuid(p),
             }
             if self.coordinator.expose_codes:
                 item["open_code"] = p.get("openCode")
