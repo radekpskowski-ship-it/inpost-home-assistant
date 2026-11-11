@@ -61,6 +61,15 @@ def parcel_sn(parcel: dict) -> str:
     return str(parcel.get("shipmentNumber") or parcel.get("id") or "")
 
 
+def multi_compartment_uuid(parcel: dict) -> str | None:
+    """UUID zbiorczej skrytki (MultiSkrytka) albo None dla zwyklej paczki.
+
+    API wypelnia `multiCompartment` tylko przy paczkach wlozonych do jednej, wspolnej
+    skrytki: maja ten sam `uuid`, a otwiera je dowolny z ich kodow odbioru.
+    """
+    return (parcel.get("multiCompartment") or {}).get("uuid")
+
+
 def format_pp_address(addr_details: dict, *, with_postcode: bool = False) -> str:
     """Buduje krotki adres paczkomatu: 'ulica numer, miasto' (lub z kodem gdy with_postcode).
 
@@ -333,6 +342,7 @@ class InpostCoordinator(DataUpdateCoordinator[list[dict]]):
             "pickup_point": pp.get("name"),
             "address": format_pp_address(pp.get("addressDetails") or {}, with_postcode=True),
             "expiry_date": parcel.get("expiryDate"),
+            "multi_compartment_uuid": multi_compartment_uuid(parcel),
         }
         if self.expose_codes:
             out["open_code"] = parcel.get("openCode")
